@@ -234,7 +234,7 @@ def set_interleave(sp,factor):
                 print( "Setting the interleave failed..." )
                 print( "Please reboot your H8 and try again..." )
                 sys.exit(1)
-        print( "Set interleave [ "+factor+" ]..." )
+        print( "Set interleave [ ",factor," ]..." )
                 
 def set_volume_number(sp,vol):
         '''
@@ -252,7 +252,7 @@ def set_volume_number(sp,vol):
                 print( "Setting the volume number failed..." )
                 print( "Please reboot your H8 and try again..." )
                 sys.exit(1)
-        print( "Set volume number [ "+vol+" ]..." )
+        print( "Set volume number [ ",vol," ]..." )
         
 def get_volume_number(typeofdisk,sp):
         '''
