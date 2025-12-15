@@ -1,0 +1,511 @@
+\ TALK  H89 serial stuff
+
+DECIMAL      \ numbers with $ in front are HEX.
+
+\ Initial values for ports to help in debug. They will be changed during
+\  the normal run of DLI.
+$3F8 CONSTANT COM1
+$2F8 CONSTANT COM2
+$3E8 CONSTANT COM3
+$2E8 CONSTANT COM4
+
+COM1 value ModemPort           \ Data port.
+ModemPort 1 + VALUE ModemPort+1   \ IntrEna.
+ModemPort 2 + VALUE ModemPort+2   \ IntrID.
+ModemPort 3 + VALUE ModemPort+3   \ LineCntl.
+ModemPort 4 + VALUE ModemPort+4   \ ModemCntl.
+ModemPort 5 + VALUE ModemPort+5   \ LineStat.
+ModemPort 6 + VALUE ModemPort+6   \ ModemStat.
+ModemPort 7 + VALUE ModemPort+7   \ Connection special reg.
+
+
+\fpc ' ModemPort    ALIAS DataReg
+\fpc ' ModemPort+1  ALIAS IntrReg   \ IntrEna.
+\fpc ' ModemPort+2  ALIAS IntrID    \ IntrID.
+\fpc ' ModemPort+3  ALIAS LineCntl  \ LineCntl.
+\fpc ' ModemPort+4  ALIAS ModemCntl \ ModemCntl.
+\fpc ' ModemPort+5  ALIAS LineStat  \ LineStat.
+\fpc ' ModemPort+6  ALIAS ModemStat \ ModemStat.
+\fpc ' ModemPort+7  ALIAS ConnReg   \ Connection special reg.
+
+\tcom  ModemPort     value DataReg
+\tcom  ModemPort 1 + value IntrReg   \ IntrEna.
+\tcom  ModemPort 2 + value IntrID    \ IntrID.
+\tcom  ModemPort 3 + value LineCntl  \ LineCntl.
+\tcom  ModemPort 4 + value ModemCntl \ ModemCntl.
+\tcom  ModemPort 5 + value LineStat  \ LineStat.
+\tcom  ModemPort 6 + value ModemStat \ ModemStat.
+\tcom  ModemPort 7 + value ConnReg   \ Connection special reg.
+
+: SetCom ( Com# - )
+   case
+    1 of COM1 endof
+    2 of COM2 endof
+    3 of COM3 endof
+    4 of COM4 endof
+   endcase
+   dup =: ModemPort   dup =: DataReg        \ Data port.
+1+ dup =: ModemPort+1 dup =: IntrReg  \ IntrEna.
+1+ dup =: ModemPort+2 dup =: IntrID  \ IntrID.
+1+ dup =: ModemPort+3 dup =: LineCntl  \ LineCntl.
+1+ dup =: ModemPort+4 dup =: ModemCntl  \ ModemCntl.
+1+ dup =: ModemPort+5 dup =: LineStat  \ LineStat.
+1+ dup =: ModemPort+6 dup =: ModemStat  \ ModemStat.
+1+ dup =: ModemPort+7 =: ConnReg ;  \ Connection special reg.
+
+: PP  \ Test word used to check status of ports
+  HEX
+  IntrReg PC@ .
+  IntrID PC@ .
+  LineCntl PC@ .
+  ModemCntl PC@ .
+  LineStat PC@ .
+  ModemStat PC@ .
+  ;
+
+\fpc : T        \ simple terminal program
+\fpc  HEX
+\fpc  BEGIN
+\fpc    KEY?
+\fpc    IF
+\fpc     KEY DUP $1B =
+\fpc     IF DROP QUIT THEN
+\fpc     DUP $0D2 =
+\fpc     IF DROP PP
+\fpc     ELSE
+\fpc      DUP $0D = IF CR THEN
+\fpc      ModemPort PC!
+\fpc     THEN
+\fpc    THEN
+\fpc    LineStat PC@ 1 AND
+\fpc   IF  ModemPort PC@ EMIT THEN
+\fpc  AGAIN ;
+
+\fpc : TALK        \ Inits port
+\fpc  7 LineCntl PC!
+\  3 modemport+4 pc!
+\fpc   T ;
+
+: Char? ( - Flag )
+   LineStat PC@ 1 AND 0<> ;
+
+: RdySend
+    BEGIN
+      LineStat PC@
+      $60 AND
+    UNTIL ;
+
+: SendChar ( Char - )  \ Send a character to modem
+    RdySend
+    ModemPort PC! ;
+
+: SendChars ( $Addr $Cnt - ) \ send string to modem
+    0 DO
+      DUP C@ SendChar 1+
+    LOOP DROP ;
+
+: ErrOut
+\fpc cr quit
+\tcom cr bye
+;
+
+: RecChar ( - Val )
+   BEGIN
+    key?
+    if
+      key $1b = if ErrOut then
+    then
+    LineStat PC@ 1 AND
+   UNTIL
+   ModemPort PC@ ;
+
+: Echo? ( Char -
+    dup SendChar
+    begin
+      RecChar over =
+    until drop ;
+
+0 value CharDelay
+
+: SetDelay
+   $55 SendChar
+   $7fff 0 do
+      499 5 / drop
+      499 5 / drop
+      LineStat PC@
+      $60 AND $60 =
+      if i =: CharDelay leave then
+   loop ;
+
+: Baud! ( Val - )
+   $10 ModemCntl pc!
+   ModemCntl pc@ $10 -
+   if cr cr ." Com port not found??" ErrOut then
+   7 LineCntl pc!
+   115200. ROT UM/MOD  \ 115200/rate=Val
+   LineCntl PC@ DUP $80 OR LineCntl PC! SWAP
+   SPLIT IntrReg PC! ModemPort PC!
+   LineCntl PC! DROP
+   $55 Echo?
+   $0AA Echo?
+   SetDelay
+   0 ModemCntl pc! ;
+
+
+\fpc DECIMAL 9600 Baud!
+
+handle LdrFile
+$265B $2329 - constant LdrSize  \ set to exact size of loader
+
+$0A00 constant B/Track
+create FileBuf B/Track allot
+here constant BufEnd
+
+handle ImgFile  \ Image file
+0 value FOpn?
+
+0 value Vol#
+
+0 value CharOfWait
+
+: WaitChar ( Char - )
+   begin
+     dup
+     RecChar dup =: CharOfWait \ Excepts upper and lower case
+     $DF and =    \ Inspect as upper case
+   until drop ;
+
+: SetVol
+   Vol# 0 255 between 0= if
+     ." No volume number set?"
+   else
+   ascii V SendChar
+   Vol# SendChar
+   ascii V WaitChar
+   then ;
+
+0 value OverRide
+
+: Y/N? ( - flag )
+   0
+   begin
+     drop
+     key $20 or
+     dup ascii y = swap
+     ascii n = over or 0=
+   while
+     cr ." Y or N pls? "
+   repeat ;
+
+create StringBuf 64 allot
+
+8 constant Bksp
+
+: CharBack ( Addr Key - Addr' 0 )
+   StringBuf c@
+   if
+     bl emit emit
+     StringBuf c@ 1- StringBuf c!
+   else
+     drop
+   then 0 ;
+
+: PutChr ( Key - )
+    dup $0D -
+    if
+      StringBuf dup c@ dup 63 =
+      if cr ." File name too large" ErrOut then
+      + 1+ c! StringBuf c@ 1+ StringBuf c! 0
+    then noop ;
+
+: GetImageHandle ( Addr - )
+   0 StringBuf !
+   begin
+\     begin key dup 6 - until
+     key
+     dup emit
+     dup BkSp =
+     if CharBack
+     else
+       PutChr
+     then
+   until
+   StringBuf swap $>handle ;
+
+: OpenImageFile ( - | FileName )
+ cr ." image file? "
+\fpc ImgFile hclose drop
+ ImgFile GetImageHandle
+ read-write ImgFile hopen
+ if
+   ." File Doesn't Exist. I'll create" cr
+   ImgFile hcreate if ." Couldn't create file?" ErrOut then
+   read-write ImgFile hopen if ." Couldn't open file?" ErrOut then
+ then
+ -1 !> FOpn? ;
+
+: DiskVol# ( - Vol# )
+  2 0 do
+\  begin
+   ascii C SendChar
+   RecChar =: Vol#
+   Vol# .
+   ascii C WaitChar
+   loop
+\   Vol# 255 <
+\  until
+ ;
+
+: WrBuf
+    FileBuf B/Track ImgFile hwrite
+    B/Track -
+    if ." Unable to write file?" ErrOut then ;
+
+: ReOpen ( - )
+    read-write ImgFile hopen
+    if ." Can't open file" cr ErrOut then ;
+
+: RdDiskVol ( - flag ) \ Reads and checks the actual volume number on tracks
+                  \ If it doesn't match then problem
+    ascii T SendChar
+    RecChar dup
+    Vol# -
+    ascii T WaitChar
+    if cr ." Vol# " Vol# . ." not = tracks Vol# =" . cr -1
+    else drop 0 then ;
+
+: CkRdErr ( - )
+    CharOfWait ascii r =
+    if
+       ." Read error was detected on this track! "
+    then ;
+
+: RDImage ( - )
+  OverRide 0=
+  if DiskVol# then
+  RdDiskVol if exit then
+  SetVol
+  FOpn? 0=
+  if ImgFile c@
+     if ReOpen
+     else ." No File open?" cr ErrOut then
+  then
+  0.0 ImgFile movepointer
+  ascii R SendChar
+  40 0 do
+    ascii R SendChar
+    FileBuf
+    B/Track 0 do
+      RecChar over c!
+      1+
+    loop
+    drop
+    ascii R WaitChar
+    cr i .
+    CkRdErr
+    WrBuf
+  loop
+  ImgFile hclose drop
+  0 =: FOpn? ;
+
+: FileVol# ( - )
+  FOpn? 0= if ." No File Open?" cr ErrOut then
+  0.0 ImgFile movepointer
+  FileBuf B/Track ImgFile hread  B/Track -
+  if ." Unable to read file?" ErrOut then
+  FileBuf $900 + c@ =: Vol# ;
+
+: RdBuf
+    FileBuf B/Track ImgFile hread
+    B/Track -
+    if ." Unable to read file?" ErrOut then ;
+
+
+$31 value IntrLvFactor
+
+: SetIntrLv
+   0
+   begin drop
+     cr ." Set Interleave 1:1 enter 1" cr
+         $0F spaces ." 1:2 enter 2" cr
+         $0F spaces ." 1:3 enter 3" cr
+     key dup ascii 1 ascii 3 between
+   until
+   =: IntrLvFactor ;
+
+: SendIntrLv
+   IntrLvFactor
+   ascii I SendChar ascii 1 - SendChar
+   ascii I WaitChar ;
+
+: WrImage ( - )
+  OverRide 0=
+  if FileVol# then
+  SetVol
+  FOpn? 0=
+  if ImgFile c@
+     if ReOpen
+     else ." No File open?" cr ErrOut then
+  then
+  SendIntrLv
+  0.0 ImgFile movepointer
+  ascii W SendChar
+  40 0 do
+    RdBuf
+    ascii W SendChar
+    FileBuf
+    B/Track 0 do
+      dup c@ SendChar
+      1+
+    loop
+    drop
+    i . cr
+    ascii W WaitChar
+  loop
+  ImgFile hclose drop
+  0 =: FOpn? ;
+
+: SaveLdr ( - )
+   Vol# 0 =: Vol#
+   SetVol
+   ascii S SendChar
+   ascii S WaitChar
+   =: Vol# ;
+
+: WrLdr
+   " H89LDR2.BIN" LdrFile ">handle
+   LdrFile hopen if ." Can't open loader file?" ErrOut then
+   FileBuf LdrSize 10 + LdrFile hread LdrSize -
+   if ." Can't read Loader File?" ErrOut then
+   Char?
+   if RecChar drop then
+   FileBuf LdrSize +
+   LdrSize 0 do
+     1- dup c@
+     Char?
+     if RecChar ascii ?
+       if cr ." Already loaded?" cr 2drop leave then
+     then
+     SendChar
+   loop drop
+   LdrFile hclose drop
+   20 0 do
+     0 SendChar 0 SendChar
+   loop
+   ascii A SendChar   ascii ?
+   $20 xor WaitChar ; \ see if alive
+
+: VolOverRide
+   override cr
+   if
+     ." Use image Vol#? (Y/N)"
+     Y/N? 0= =: OverRide
+   else
+     ." Over ride image Vol#? (Y/N)"
+     Y/N? =: OverRide
+   then cr ;
+
+: ChkNum
+       dup 0 9 between 0=
+       if ." Volume not a number?" ErrOut then ;
+
+: ChkSize
+       $0FF > if ." Volume must be 0 to 255 only" ErrOut then ;
+
+: GetVol#
+   VolOverRide
+   OverRide
+   if
+     cr ." Enter Vol#: "
+     0 !> Vol#
+     begin
+       key
+       dup $0D -
+     while
+       dup emit $30 -
+       ChkNum
+       Vol# $0A * + dup !> Vol#
+       ChkSize
+     repeat drop
+   then ;
+
+: InitPort
+   9600 Baud! ;
+
+create BaudTbl
+     1200 , 2400 , 4800 , 9600 ,
+
+: SetNewBaud
+    ." Select Baud 4=9600 3=4800 2=2400 1=1200 ? "
+    key dup emit
+    dup ascii 1 ascii 4 between
+    if ascii 1 - 2* BaudTbl + @ Baud!
+    else drop 2 spaces ." is not a valid number!" 0 then ;
+
+: Cmnd?
+  cr ." V set volume# now:"
+  OverRide
+  if   ."   Override = " Vol# .
+  else ."   From Image" then
+  cr ." O open/create image file now:  "
+  FOpn?
+  if  ImgFile count type
+  else ."   None" then
+  cr ." W write image to H89"
+  cr ." R read image from H89"
+  cr ." L Send H89LDR2.BIN to H89"
+  cr ." S Save loader on H89"
+  cr ." I Set interleave  = 1:" IntrLvFactor emit
+  cr ." B Set Baud rate for use with H8-5"
+  cr ." X exit to DOS"
+  cr ." Command?" key $0DF and dup emit ;
+
+: CommandEx ( Char - )
+    case
+     ascii V  of GetVol# 0 endof
+     ascii W  of WrImage 0 endof
+     ascii R  of RdImage 0 endof
+     ascii L  of WrLdr 0 endof
+     ascii S  of SaveLdr 0 endof
+     ascii O  of OpenImageFile 0 endof
+     ascii I  of SetIntrLv 0 endof
+     ascii B  of SetNewBaud 0 endof
+     ascii X  of -1 endof
+     drop cr cr ." Not a Command?" cr 0
+    endcase ;
+
+: ClearChar ( - )
+   Char?
+   if
+     RecChar drop
+   then ;
+
+: GetCom ( - Flag )
+    key dup emit
+    dup ascii 1 ascii 4 between
+    if ascii 0 - SetCom -1
+    else drop 2 spaces ." is not valid number!" 0 then ;
+
+: SlctCom ( - ) \ select a com port
+   begin
+     cr cr ." Select a COM port?"
+     GetCom
+   until cr cr ;
+
+: .SO
+  base @ >r 0 $100 m/mod octal U. U. r> base ! ;
+
+: Command
+   SlctCom
+   decimal " IMG" defext 1+ swap cmove
+   InitPort
+   CharDelay h. cr
+   begin
+     Cmnd?
+     ClearChar
+\     dup ascii V = if drop GetVol# 0
+\             else NotVol# then
+   CommandEx
+   until ErrOut ;
+
+
