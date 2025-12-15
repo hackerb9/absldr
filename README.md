@@ -29,7 +29,7 @@ Send HALFSHIM.BIN instead of H89LDR2.BIN. Then send SOMEFILE.ABS.
 After keying in Dwight Elvey's BOOTSTRP, send the HALFSHIM binary from
 a PC using [h8clxfer.py][h8clxfer]:
 
-    h8clxfer.py -l -f HALFSHIM.ASM.bin
+    h8clxfer.py -l -f HALFSHIM.BIN
 
 After sending HALFSHIM, send an ABS file to start it running:
 
