@@ -10,7 +10,7 @@ ____
 
 ## Description
 
-After a user has keyed in Dwight Elvey's [BOOTSTRP][BOOTSTRP.OCL] at
+After a user has keyed in Dwight Elvey's [BOOTSTRP][H89LDR] at
 the Monitor, send this shim program from a host computer over the
 serial port instead of H89LDR2.ASM. This program will read yet another
 program over the serial port and execute it, similar to BOOTSTRP.ASM.
@@ -18,19 +18,25 @@ The difference is that the next file will be prefixed with an HDOS
 .ABS header, which allows the data to be loaded into any arbitrary
 address and to be of any length.
 
+[H89LDR]: friends/H89LDR9/
+
 ## Quick Usage
 
 Send HALFSHIM.BIN instead of H89LDR2.BIN. Then send SOMEFILE.ABS. 
 
 ## Usage
 
-After keying in Dwight Elvey's BOOTSTRP, send the HALFSHIM binary from a PC:
+After keying in Dwight Elvey's BOOTSTRP, send the HALFSHIM binary from
+a PC using [h8clxfer.py][h8clxfer]:
 
     h8clxfer.py -l -f HALFSHIM.ASM.bin
 
 After sending HALFSHIM, send an ABS file to start it running:
 
     h8clxfer.py -l -f GACTAGA.ABS
+
+[h8clxfer]: friends/h8clxfer.py
+
 
 0. Connect your PC with a straight (not null) serial cable to the port
    labelled **430** on the back of your H89.
@@ -47,6 +53,8 @@ After sending HALFSHIM, send an ABS file to start it running:
    program to load.
 6. On your PC, run `h8clxfer.py -l -f SOMEFILE.ABS` to send
    it to your H89. It will start executing automatically.
+
+[BOOTSTRP.OCL]: friends/H89LDR9/BOOTSTRP.OCL
 
 ## About
 
