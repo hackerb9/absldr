@@ -122,7 +122,7 @@ class H89Trans:
         except serial.SerialException as e:
             print(f"\n--- ERROR: Could not open port {port} ---")
             print(f"Details: {e}")
-#            exit(1)
+            exit(1)
 
     def set_interleave(self):
         """SetIntrLv: Ask user what floppy disk interleave they would like"""
@@ -152,7 +152,7 @@ class H89Trans:
     def save_loader_to_disk(self):
         if not self.is_h89ldr2_alive():
             return
-        self.set_volume(0)      # Temporarily set the volume to 0 on the H89
+        self.send_volume(0)     # Temporarily set the volume to 0 on the H89
         self.ser.write(b'S')    # H89LDR2 knows what to do when it receives 'S'
         self.wait_char('S')     # Wait for the H89 to finish.
         print("H89LDR2 saved to bootable disk on H89.")
@@ -177,17 +177,18 @@ class H89Trans:
             print( f'Baud rate remains at {self.ser.baudrate}' )
 
     def get_image_volume(self):
-        # XXXX is this right? Reading image volume sets global volume?
-        # XXX This could be cleaner, shorter. 
-        vol = self.vol
-        if not self.fp: return vol
+        """FileVol#: Read the Vol# out of an image file"""
+        if not self.fp:
+            print ("Error in get_image_volume: No File Open?")
+            return self.vol
         try:
             self.fp.seek(0x900)     # Offset 2304
             raw = self.fp.read(1)
+            self.fp.seek(0) 
             if raw:
-                vol = ord(raw)
-                print(f"Image File Volume identified as: {vol}")
-            return vol
+                self.vol = ord(raw)
+                print(f"Image file's volume#: {self.vol}")
+            return self.vol
         except OSError as e:
             print(f"Error: Can't read '{self.fp.name}'?")
             print(e)
@@ -204,16 +205,16 @@ class H89Trans:
             print('  Please Open an existing image file to send first.')
             return
 
-        if not self.is_h89ldr2_alive():
-            return
-
-        if not self.override:
-            self.vol = self.get_image_volume()
+#        if not self.is_h89ldr2_alive():
+#            return
 
         print(f'Writing {self.fp.name} to the H89 floppy drive')
 
         try:
-
+            if self.override:
+                self.send_volume(self.vol)
+            else:
+                self.send_volume(self.get_image_volume())
             self.fp.seek(0)
             self.send_interleave() 
             self.ser.write(b'W')
@@ -291,7 +292,7 @@ class H89Trans:
             except serial.SerialException:
                 print("\nConnection lost during wait_char."); return
 
-    def set_volume(self, vol=None):
+    def send_volume(self, vol=None):
         """SetVol: Tell H89 which disk volume to use."""
         if not vol: vol=self.vol
         if not (0 <= vol <= 255):
