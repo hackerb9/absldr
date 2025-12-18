@@ -205,6 +205,7 @@ class H89Trans:
             print('  Please Open an existing image file to send first.')
             return
 
+# XXX why is this failing?
 #        if not self.is_h89ldr2_alive():
 #            return
 
@@ -274,9 +275,52 @@ class H89Trans:
             print(e)
             return
 
+    def send_abs(self):
+        """Experimental! If HALFSHIM is loaded, try sending an ABS file to the H89"""
+        if not self.fp: 
+            print('\n  Please first Open an ABS file to send.')
+            return
+
+        if self.fp_dir == 'from h89':
+            print(f'\n  The file "{self.fp.name}" is opened for writing.')
+            print('  Please Open an existing ABS file to send first.')
+            return
+
+        print(f'File size: {os.path.getsize(self.fp.name)}')
+        try:
+            self.fp.seek(0)
+            s = self.fp.read(8)
+            magic = s[0] | s[1]<<8
+            addr  = s[2] | s[3]<<8
+            length= s[4] | s[5]<<8
+            entry = s[6] | s[7]<<8
+            print(f'Magic: {magic:04X}, Load Addr: {addr:04X}, Length: {length:04X}, entry: {entry:04X}')
+            if magic != 255:
+                print('\n    WARNING: This does not look like an ABS file\n')
+            endaddr=addr+length
+            if addr < 0x2329 < endaddr:
+                print('\n    WARNING: This will overwrite HALFSHIM (0x2329) and will fail.\n')
+            if endaddr > 0xFFFF:
+                print('\n    WARNING: This will write beyond 64K of RAM and will fail.\n')
+            if entry == 0x2329:
+                print('\n    NOTE: This is a multipart file which returns to HALFSHIM.\n')
+            elif entry < addr or endaddr < entry:
+                print('\n    NOTE: The will pass control an address not within the program.\n')
+                
+            self.fp.seek(0)
+            print(f"\rSending {self.fp.name} to H89... ", end='', flush=True)
+            data = self.fp.read()
+            self.ser.write(bytes(data))
+            print(f"{len(data)} bytes sent")
+
+        except OSError as e:
+            print(f"Problem reading '{self.fp.name}'?")
+            print(e)
+            return
+
     def wait_char(self, target):
         """WaitChar. Blocks until target char received from H89."""
-        target = ord(target.upper())
+        target = target.upper()
         while True:
             try:
                 raw = self.ser.read(1)
@@ -288,6 +332,12 @@ class H89Trans:
                 # ... but inspect as upper case.
                 if self.char_of_wait.upper() == target:
                     break
+                else:
+                    t = target
+                    t = t if t.isprintable() else f'{ord(t):02X}'
+                    c = self.char_of_wait
+                    c = c if c.isprintable() else f'{ord(c):02X}'
+                    print(f'Expected "{t}" got "{c}" {ord(c):02X}', flush=True)
 
             except serial.SerialException:
                 print("\nConnection lost during wait_char."); return
@@ -373,8 +423,8 @@ class H89Trans:
         return True
 
     def is_h89ldr2_alive(self):
-        """Is H89 alive and responding?"""
-        self.ser.write(b'A')
+        """Is H89LDR2 loaded and responding?"""
+        self.ser.write(b'?')
         ch = self.ser.read(1)
         if not ch:
             print("\n    Error: H89 is not responding.")
@@ -502,6 +552,8 @@ class H89Trans:
         elif choice == 'I': self.set_interleave()
         elif choice == 'B': self.set_baud_rate()
         elif choice == 'P': self.pp()
+        elif choice == 'H': self.write_loader('HALFSHIM.BIN')
+        elif choice == 'A': self.send_abs()
         elif choice == 'X' or choice == 'Q' or choice == '\x1B': 
             print("Exiting to DOS...")
             exit(0)
