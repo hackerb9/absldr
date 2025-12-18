@@ -67,11 +67,15 @@ SHIM:	CALL    GETCH       ; Ignore first two bytes of .ABS file
 
 	;; --- MAIN LOAD LOOP ---
 LOOP:	CALL    GETCH       ; Read byte from serial into A
-	STAX	D	    ; Store byte in destination (DE)
+	STAX	D	    ; Store byte in destination (*DE)
 	INX	D	    ; Next memory location
-        DCX     B           ; Decrement LENGTH (BC)
-        JNZ     LOOP	    ; Loop until LENGTH bytes done
-
+        DCX     B           ; Decrement LENGTH (BC) -- (Does not set Z-flag!)
+	MVI	A,0         ; Probably there's a better way to do this....
+	CMP	C	    ; Is C (low byte) == 0?
+	JNZ     LOOP	    ; Nope, so loop for next byte
+	CMP	B	    ; Is B (high byte) also 0?
+	JNZ	LOOP	    ; Nope, so loop for another 256 bytes.
+	
 	;; --- EXECUTE NEXT STAGE ---
         PCHL                ; Jump to the received code.
 
