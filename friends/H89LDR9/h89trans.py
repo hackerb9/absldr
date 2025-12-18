@@ -336,7 +336,7 @@ class H89Trans:
                     t = target
                     t = t if t.isprintable() else f'{ord(t):02X}'
                     c = self.char_of_wait
-                    c = c if c.isprintable() else f'{ord(c):02X}'
+                    c = c if c.isprintable() else f'{ord(raw):02X}'
                     print(f'Expected "{t}" got "{c}" {ord(c):02X}', flush=True)
 
             except serial.SerialException:
