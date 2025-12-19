@@ -46,10 +46,10 @@ import time
 # --- Platform-specific Key Handling ---
 if os.name == 'nt':
     import msvcrt
-    def get_key(): return msvcrt.getch().decode('ascii', errors='ignore') if msvcrt.kbhit() else None
+    def _get_key(): return msvcrt.getch().decode('ascii', errors='ignore') if msvcrt.kbhit() else None
 else:
     import termios, tty, select
-    def get_key():
+    def _get_key():
         # Source - Unix get_key from Python 3 FAQ.
         import termios, fcntl, sys, os
         fd = sys.stdin.fileno()
@@ -72,6 +72,12 @@ else:
             termios.tcsetattr(fd, termios.TCSAFLUSH, oldterm)
             fcntl.fcntl(fd, fcntl.F_SETFL, oldflags)
 
+    def get_key(prompt=''):
+        print(prompt, end='', flush=True)
+        c = _get_key()
+        print( c  if c.isprintable()  else f'[{ord(c):02X}H]' )
+        return c
+
     def errout():
         """ErrOut: Quits this program with an error."""
         exit(1)
@@ -81,7 +87,7 @@ class H89Trans:
     def __init__(self):
         self.ser = None            	# The serial.Serial object.
         self.port = None        	# Automatically detected
-        self.baud = 9600                # 9600 is good for H89. H8 lower?
+        self.default_baud = 9600        # 9600 is good for H89's H-8-4
         self.interleave_factor = 1 	# Write 1:1 disk interleave by default
         self.num_tracks = 40            # 40 track disks
         self.track_size = 0x0A00 	# 2560 bytes per track
@@ -90,10 +96,9 @@ class H89Trans:
         self.char_of_wait = None        # Character read during wait_char
         self.read_errors = 0            # Number of read errors encountered
         self.fp = None                  # The image file on the PC
-        self.fp_dir = 'Neither'         # Don't overwrite existing files.
+        self.fp_dir = 'Neither'         # Guard against clobbering files.
 
     def select_port(self):
-# XXX match with GetCom?
         """Finds and opens a serial port."""
         ports = serial.tools.list_ports.comports()
         if not ports:
@@ -111,10 +116,10 @@ class H89Trans:
         else:
             self.port = self.select_port_menu(sorted(ports))
 
-        self.ser = self.initialize_port(self.port, self.baud)
+        self.ser = self.initialize_port(self.port, self.default_baud)
 
     def select_port_menu(self, ports):
-        """SlctCom: Select a serial port"""
+        """SlctCom, GetCom, SetCom: Select a serial port"""
         if not ports:
             print("No serial ports detected! Check your USB cables.")
             return None
@@ -124,15 +129,13 @@ class H89Trans:
             for i, p in enumerate(ports):
                 print(f"{i+1}) {p.name} - {p.description}")
 
-            print("Select a port number: ", end='', flush=True)
-            choice = get_key();
-            print( choice if choice.isprintable()
-                   else f'[{ord(choice):X}]' )
+
+            choice = get_key("Select a serial port? ")
             try:
                 idx = int(choice) - 1
                 return ports[idx].device
             except (ValueError, IndexError):
-                print("Invalid selection.")
+                print( 'That is not a valid number!' )
 
     def initialize_port(self, port, baud):
         """InitPort: Initialize the port to 9600 baud"""
@@ -143,7 +146,9 @@ class H89Trans:
         except serial.SerialException as e:
             print(f"\n--- ERROR: Could not open port {port} ---")
             print(f"Details: {e}")
-            exit(1)
+# XXX debugging
+#            exit(1)
+            return serial.Serial() 		# For debugging 
 
     def pp(self):
         """PP: Test word used to check status of ports"""
@@ -190,14 +195,10 @@ class H89Trans:
     def y_n_prompt(self):
         """Y/N?"""
         while True:
-            k = get_key()
-            if k:
-                print( k if k.isprintable()
-                       else f'[{ord(k):X}]' )
-                k = k.lower()
-                if k == 'y': return True
-                if k == 'n': return False
-                print("Y or N pls?", end='', flush=True)
+            k = get_key().upper()
+            if k == 'Y': return True
+            if k == 'N': return False
+            print("Y or N pls?", end='', flush=True)
 
     def open_image_file(self):
         """OpenImageFile: Prompt for a filename to open/create."""
@@ -387,9 +388,7 @@ class H89Trans:
     def set_interleave(self):
         """SetIntrLv: Ask user what floppy disk interleave they would like"""
         while True:
-            print("\nSet interleave  = 1:", end='')
-            k = get_key()
-            print(k)
+            k = get_key("\nSet interleave  = 1:")
             if k in ['1', '2', '3']:
                 self.interleave_factor = int(k)
                 print(f"Interleave set to 1:{k}")
@@ -544,14 +543,10 @@ class H89Trans:
         #        '5':19200, '6':38400, '7':57600, '8':115200}
         print("\nSelect Baud ", end='')
         for k, v in rates.items(): print(f" {k}={v} ", end='')
-        print("? ", end='', flush=True)
-        c = get_key()
-        print()
+        c = get_key('? ')
         if c in rates:
-            self.baud = rates[c]
-            if self.ser:
-                self.ser.baudrate = self.baud
-                print(f"Baud rate updated to {self.baud}")
+            self.ser.baudrate = rates[c]
+            print(f"Baud rate updated to {self.ser.baudrate}")
         else:
             print( f'{c if c.isprintable() else "that"}',
                    'is not a valid number!' )
@@ -569,14 +564,10 @@ class H89Trans:
         print("L Send H89LDR2.BIN to H89")
         print("S Save loader on H89")
         print("I Set interleave  = 1:" f"{self.interleave_factor}")
-        print("B Set Baud rate for use with H8-5")
+        print("B Set Baud rate (for use with H8-5)")
         print("X exit to DOS")
 
-        print("\nCommand? ", end="", flush=True)
-        choice = get_key().upper() 
-        print( choice if choice.isprintable()
-               else f'[{ord(choice):X}]' )
-        return choice
+        return get_key("\nCommand? ").upper() 
 
     def command_execute(self, choice):
         """CommandEx: Execute the key pressed from the menu."""
