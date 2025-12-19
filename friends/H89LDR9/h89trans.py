@@ -3,7 +3,11 @@
 # Based on Dwight Elvey's H89TRANS.SEQ
 
 # v 1.0 This is a one-to-one port from Forth to Python by hackerb9.
-# It should work almost identically to H89TRANS.COM.
+
+# It should work almost identically to H89TRANS.COM as it is nearly
+# identical at the function call level. The main difference is not
+# having to twiddle the bits of the PC's UART directly and instead
+# using the Python serial package.
 
 # Unlike the original code, this can run on any modern computer. It
 # also has some minor niceties, such as automatically detecting your
@@ -19,6 +23,13 @@
 # Translating most of the original code was straightforward once I
 # learned rudimentary Forth. The parts I have questions about have
 # been marked with XXX below.
+
+# Forth words not translated to Python as there was no need: PP,
+# SetCom, Char?, RdySend, SendChar, SendChars, RecChar, Echo?,
+# SetDelay, Baud!, CharBack, PutChr, GetImageHandle, WrBuf, 
+
+# Of course, any other differences are bugs on my part and I would
+# appreciate if you would file an issue or a pull request.
 
 # --b9 December 2025
 
@@ -60,6 +71,11 @@ else:
             termios.tcsetattr(fd, termios.TCSAFLUSH, oldterm)
             fcntl.fcntl(fd, fcntl.F_SETFL, oldflags)
 
+    def errout():
+        """ErrOut: Quits this program with an error."""
+        exit(1)
+
+
 class H89Trans:
     def __init__(self):
         self.ser = None            	# The serial.Serial object.
@@ -95,6 +111,7 @@ class H89Trans:
         self.ser = self.initialize_port(self.port, self.baud)
 
     def select_port_menu(self, ports):
+        """SlctCom: Select a serial port"""
         if not ports:
             print("No serial ports detected! Check your USB cables.")
             return None
@@ -123,6 +140,215 @@ class H89Trans:
             print(f"\n--- ERROR: Could not open port {port} ---")
             print(f"Details: {e}")
             exit(1)
+
+    def pp(self):
+        """PP: Test word used to check status of ports"""
+        if self.ser:
+            from pprint import pprint
+            pprint(self.ser.get_settings())
+
+    def wait_char(self, target):
+        """WaitChar. Blocks until target char received from H89."""
+        target = target.upper()
+        while True:
+            try:
+                raw = self.ser.read(1)
+                if not raw: continue
+
+                # Save upper and lower case for later...
+                self.char_of_wait = raw.decode('ascii', errors='ignore')
+
+                # ... but inspect as upper case.
+                if self.char_of_wait.upper() == target:
+                    break
+                else:
+                    t = target
+                    t = t if t.isprintable() else f'{ord(t):02X}'
+                    c = self.char_of_wait
+                    c = c if c.isprintable() else f'{ord(raw):02X}'
+                    print(f'wait_char: Waiting for "{t}", got "{c}" ({ord(c):02X})', flush=True)
+
+            except serial.SerialException:
+                print("\nConnection lost during wait_char."); return
+
+    def send_volume(self, vol=None):
+        """SetVol: Tell H89 which disk volume to use."""
+        if not vol: vol=self.vol
+        if not (0 <= vol <= 255):
+            # XXX Will this ever trigger? The default volume number is 0.
+            print("No volume number set?")
+            return
+        self.ser.write(b'V')
+        self.ser.write(bytes([vol]))
+        self.wait_char('V')
+        print(f"H89 Volume set to {vol}")
+
+    def y_n_prompt(self):
+        """Y/N?"""
+        while True:
+            k = get_key()
+            if k:
+                print( k if k.isprintable()
+                       else f'[{ord(k):X}]' )
+                k = k.lower()
+                if k == 'y': return True
+                if k == 'n': return False
+                print("Y or N pls?", end='', flush=True)
+
+    def open_image_file(self):
+        """OpenImageFile: Prompt for a filename to open/create."""
+        if self.fp: self.fp=None
+        while True:
+            print("\nimage file? ", end="")
+            filename = input().strip()
+            if filename:
+                if os.path.isdir(filename):
+                    os.chdir(filename)
+                else:
+                    break
+            print(os.path.realpath('.'))
+            print(os.listdir('.'))
+
+        if os.path.exists(filename) and os.path.getsize(filename):
+            b = os.path.getsize(filename)
+            print(f"Reading existing file of {b:,} bytes")
+            try:
+                self.fp = open(filename, 'rb')
+                self.fp_dir = 'to h89'
+            except IOError:
+                print("Couldn't open file?")
+                self.fp = None
+        else:
+            print("File Doesn't Exist. I'll create")
+            try:
+                self.fp = open(filename, 'wb')
+                self.fp_dir = 'from h89'
+            except IOError:
+                print("Couldn't create file?")
+                self.fp = None
+                return
+
+    def get_disk_volume(self):
+        """
+        DiskVol#: Queries the H89 for the disk's current volume number.
+        """
+        # XXX The original Forth code does '2 0 do', performing the check
+        # XXX and printing it twice. Why? Possibly because we don't know
+        # XXX the state on the H89? Note that the original code also has
+        # XXX some commented out flow control statements, indicating that
+        # XXX perhaps this bit of code may not be completely up to snuff.
+        # XXX Why would checking twice help? Does the volume reported vary?
+        for _ in range(2):
+            self.ser.write(b'C')
+            raw_vol = self.ser.read(1)
+            if raw_vol:
+                self.vol = ord(raw_vol)
+                print(f"Volume detected: {self.vol}")
+            else:
+                print("Error: No volume response from H89.")
+                return False
+            self.wait_char('C')
+        return True
+
+    def is_h89ldr2_alive(self):
+        """Is H89LDR2 loaded and responding?"""
+        self.ser.write(b'?')
+        ch = self.ser.read(1)   # See initialize_port for timeout.
+        if not ch:
+            print("\n    Error: H89 is not responding.")
+            print("    Please Load H89LDR2 and check cables.")
+            return False
+        else:
+            return True
+
+    def read_track_volume_problem(self):
+        """RdDiskVol: Reads and checks the actual volume number on tracks
+        If it doesn't match then problem, return true."""
+        self.ser.write(b'T')
+        track_vol_raw = self.ser.read(1)
+        if not track_vol_raw:
+            print('Error: No Track Volume response')
+            return True # Treat as error if no response
+        track_vol = ord(track_vol_raw)
+        self.wait_char('T')
+
+        if track_vol != self.vol:
+            print(f"\nVol# {self.vol} not = tracks Vol# = {track_vol}")
+            return True # Error flag
+
+        return False # Success
+
+    def check_read_error(self):
+        """CkRdErr, checks for lowercase instead of uppercase R."""
+        if self.char_of_wait == 'r':
+            print("Read error was detected on this track!")
+        self.read_errors+=1
+
+    def read_disk(self):
+        """RDImage: Read disk image from H89 to PC."""
+        if not self.fp: 
+            print('\n  Please Open an image file to receive into first.')
+            return
+
+        if self.fp_dir == 'to h89':
+            print(f'\n  The file "{self.fp.name}" is opened for reading.')
+            print(   '  Please Open an new image file to receive into.')
+            return
+
+        if not self.is_h89ldr2_alive():
+            return
+
+        if not self.override:
+            if not self.get_disk_volume():
+                return
+            print(f"Volume on disk identified as: {self.vol}")
+            # XXX: Should the Track Volume be checked on every track?
+            if self.read_track_volume_problem():
+                # XXX: Should we attempt to recover or offer to set the vol?
+                return
+
+        print(f'Receiving disk into {self.fp.name} from the H89')
+
+        try:
+            self.fp.seek(0)
+            self.read_errors=0
+            self.ser.write(b'R')
+
+            for track in range(40):
+                print(f"\rReceiving Track {track}... ", end='', flush=True)
+                self.ser.write(b'R')
+                buffer = bytearray()
+                for _ in range(self.track_size):
+                    buffer.extend(self.ser.read(1))
+                self.wait_char('R')
+                self.check_read_error()
+                self.fp.write(buffer) 		# WrBuf
+
+            self.fp.close()
+            self.fp = None
+            print(f"\nRead Complete. Disk image saved in {fname}.")
+            if self.read_errors:
+                print(f"\n  WARNING: {self.read_errors} Read Errors.\n")
+        except OSError as e:
+            print(f"Error: Can't write '{filename}'?")
+            print(e)
+            return
+
+    def volume_override_prompt(self):
+        print( "\nUse image Vol#? (Y/N)" if self.override
+              else "\nOver ride image Vol #? (Y/N)", end=" ")
+
+        # If user says 'Y', we flip the current state
+        if self.y_n_prompt():
+            self.override = not self.override
+
+        # Set Volume #, if overriding
+        if self.override:
+            try:
+                val = input(f"Enter Vol# [{self.vol}]: ")
+                if val: self.vol = int(val) & 0xFF  # Ensure 8-bit
+            except ValueError: print("   Invalid - Vol# unchanged.")
+
 
     def set_interleave(self):
         """SetIntrLv: Ask user what floppy disk interleave they would like"""
@@ -234,12 +460,6 @@ class H89Trans:
             print(e)
             return
 
-    def pp(self):
-        """Test word used to check status of ports"""
-        if self.ser:
-            from pprint import pprint
-            pprint(self.ser.get_settings())
-
     def write_loader(self, filename="H89LDR2.BIN"):
         """Load the next stage loader, H89LDR2, on the H89"""
         LDR_SIZE = (0x265B - 0x2329)  # 818 bytes
@@ -319,208 +539,6 @@ class H89Trans:
             print(f"Problem reading '{self.fp.name}'?")
             print(e)
             return
-
-    def wait_char(self, target):
-        """WaitChar. Blocks until target char received from H89."""
-        target = target.upper()
-        while True:
-            try:
-                raw = self.ser.read(1)
-                if not raw: continue
-
-                # Save upper and lower case for later...
-                self.char_of_wait = raw.decode('ascii', errors='ignore')
-
-                # ... but inspect as upper case.
-                if self.char_of_wait.upper() == target:
-                    break
-                else:
-                    t = target
-                    t = t if t.isprintable() else f'{ord(t):02X}'
-                    c = self.char_of_wait
-                    c = c if c.isprintable() else f'{ord(raw):02X}'
-                    print(f'Expected "{t}" got "{c}" {ord(c):02X}', flush=True)
-
-            except serial.SerialException:
-                print("\nConnection lost during wait_char."); return
-
-    def send_volume(self, vol=None):
-        """SetVol: Tell H89 which disk volume to use."""
-        if not vol: vol=self.vol
-        if not (0 <= vol <= 255):
-            print("No volume number set?")
-            return
-
-        self.ser.write(b'V')
-        self.ser.write(bytes([vol]))
-        self.wait_char('V')
-        print(f"H89 Volume set to {vol}")
-
-    def y_n_prompt(self):
-        """Y/N?"""
-        while True:
-            k = get_key()
-            if k:
-                print( k if k.isprintable()
-                       else f'[{ord(k):X}]' )
-                k = k.lower()
-                if k == 'y': return True
-                if k == 'n': return False
-                print("Y or N pls?", end='', flush=True)
-
-    def open_image_file(self):
-        """OpenImageFile: Prompt for a filename to open/create."""
-        if self.fp: self.fp=None
-        while True:
-            print("\nimage file? ", end="")
-            filename = input().strip()
-            if filename:
-                if os.path.isdir(filename):
-                    os.chdir(filename)
-                else:
-                    break
-            print(os.path.realpath('.'))
-            print(os.listdir('.'))
-
-        if os.path.exists(filename) and os.path.getsize(filename):
-            b = os.path.getsize(filename)
-            print(f"Reading existing file of {b:,} bytes")
-            try:
-                self.fp = open(filename, 'rb')
-                self.fp_dir = 'to h89'
-            except IOError:
-                print("Couldn't open file?")
-                self.fp = None
-        else:
-            print("File Doesn't Exist. I'll create")
-            try:
-                self.fp = open(filename, 'wb')
-                self.fp_dir = 'from h89'
-            except IOError:
-                print("Couldn't create file?")
-                self.fp = None
-                return
-
-    def get_disk_volume(self):
-        """
-        Queries the H89 for the disk's current volume number.
-        Equivalent to 'DiskVol#' word in Forth.
-        """
-        # XXX The original Forth code does '2 0 do', performing the check
-        # XXX and printing it twice. Why? Possibly because we don't know
-        # XXX the state on the H89? Note that the original code also has
-        # XXX some commented out flow control statements, indicating that
-        # XXX perhaps this bit of code may not be completely up to snuff.
-        # XXX Does the volume reported vary?
-        for _ in range(2):
-            self.ser.write(b'C')
-            raw_vol = self.ser.read(1)
-            if raw_vol:
-                self.vol = ord(raw_vol)
-                print(f"Volume detected: {self.vol}")
-            else:
-                print("Error: No volume response from H89.")
-                return False
-            self.wait_char('C')
-        return True
-
-    def is_h89ldr2_alive(self):
-        """Is H89LDR2 loaded and responding?"""
-        self.ser.write(b'?')
-        ch = self.ser.read(1)
-        if not ch:
-            print("\n    Error: H89 is not responding.")
-            print("    Please Load H89LDR2 and check cables.")
-            return False
-        else:
-            return True
-
-    def read_track_volume_problem(self):
-        """RdDiskVol: Reads and checks the actual volume number on tracks
-        If it doesn't match then problem, return true."""
-        self.ser.write(b'T')
-        track_vol_raw = self.ser.read(1)
-        if not track_vol_raw:
-            print('Error: No Track Volume response')
-            return True # Treat as error if no response
-        track_vol = ord(track_vol_raw)
-        self.wait_char('T')
-
-        if track_vol != self.vol:
-            print(f"\nVol# {self.vol} not = tracks Vol# = {track_vol}")
-            return True # Error flag
-
-        return False # Success
-
-    def check_read_error(self):
-        """CkRdErr, checks for lowercase instead of uppercase R."""
-        if self.char_of_wait == 'r':
-            print("Read error was detected on this track!")
-        self.read_errors+=1
-
-    def read_disk(self):
-        """RDImage: Read disk image from H89 to PC."""
-        if not self.fp: 
-            print('\n  Please Open an image file to receive into first.')
-            return
-
-        if self.fp_dir == 'to h89':
-            print(f'\n  The file "{self.fp.name}" is opened for reading.')
-            print(   '  Please Open an new image file to receive into.')
-            return
-
-        if not self.is_h89ldr2_alive():
-            return
-
-        if not self.override:
-            if not self.get_disk_volume():
-                return
-            print(f"Volume on disk identified as: {self.vol}")
-            # XXX: Should the Track Volume be checked on every track?
-            if self.read_track_volume_problem():
-                # XXX: Should we attempt to recover or offer to set the vol?
-                return
-
-        print(f'Receiving disk into {self.fp.name} from the H89')
-
-        try:
-            self.fp.seek(0)
-            self.read_errors=0
-            self.ser.write(b'R')
-
-            for track in range(40):
-                print(f"\rReceiving Track {track}... ", end='', flush=True)
-                self.ser.write(b'R')
-                buffer = bytearray()
-                for _ in range(self.track_size):
-                    buffer.extend(self.ser.read(1))
-                self.wait_char('R')
-                self.check_read_error()
-                f.write(buffer)
-
-            print(f"\nRead Complete. Disk image saved in {fname}.")
-            if self.read_errors:
-                print(f"{self.read_errors} Read Errors.")
-        except OSError as e:
-            print(f"Error: Can't write '{filename}'?")
-            print(e)
-            return
-
-    def volume_override_prompt(self):
-        print( "\nUse image Vol#? (Y/N)" if self.override
-              else "\nOver ride image Vol #? (Y/N)", end=" ")
-
-        # If user says 'Y', we flip the current state
-        if self.y_n_prompt():
-            self.override = not self.override
-
-        # Set Volume #, if overriding
-        if self.override:
-            try:
-                val = input(f"Enter Vol# [{self.vol}]: ")
-                if val: self.vol = int(val) & 0xFF  # Ensure 8-bit
-            except ValueError: print("   Invalid - Vol# unchanged.")
-
 
     def display_menu(self):
         """Cmnd?: Show options and get a key"""
