@@ -26,10 +26,11 @@
 
 # Forth words not translated to Python as there was no need: PP,
 # SetCom, Char?, RdySend, SendChar, SendChars, RecChar, Echo?,
-# SetDelay, Baud!, CharBack, PutChr, GetImageHandle, WrBuf, 
+# SetDelay, Baud!, CharBack, PutChr, GetImageHandle, WrBuf, ChkNum,
+# ChkSize (?needed?), and ClearChar.
 
-# Of course, any other differences are bugs on my part and I would
-# appreciate if you would file an issue or a pull request.
+# Of course, any other differences are likely bugs on my part and I
+# would appreciate if you would file an issue or a pull request.
 
 # --b9 December 2025
 
@@ -82,6 +83,7 @@ class H89Trans:
         self.port = None        	# Automatically detected
         self.baud = 9600                # 9600 is good for H89. H8 lower?
         self.interleave_factor = 1 	# Write 1:1 disk interleave by default
+        self.num_tracks = 40            # 40 track disks
         self.track_size = 0x0A00 	# 2560 bytes per track
         self.vol = 0                    # Disk volume number 0-255
         self.override = False    	# Should we override the Vol read?
@@ -91,6 +93,7 @@ class H89Trans:
         self.fp_dir = 'Neither'         # Don't overwrite existing files.
 
     def select_port(self):
+# XXX match with GetCom?
         """Finds and opens a serial port."""
         ports = serial.tools.list_ports.comports()
         if not ports:
@@ -132,6 +135,7 @@ class H89Trans:
                 print("Invalid selection.")
 
     def initialize_port(self, port, baud):
+        """InitPort: Initialize the port to 9600 baud"""
         try:
             ser = serial.Serial(port, baud, timeout=1, stopbits=2)
             print(f"Connected to {port} at {baud} baud.")
@@ -314,7 +318,7 @@ class H89Trans:
             self.read_errors=0
             self.ser.write(b'R')
 
-            for track in range(40):
+            for track in range(self.num_tracks):
                 print(f"\rReceiving Track {track}... ", end='', flush=True)
                 self.ser.write(b'R')
                 buffer = bytearray()
@@ -334,7 +338,36 @@ class H89Trans:
             print(e)
             return
 
-    def volume_override_prompt(self):
+    def get_image_volume(self):
+        """FileVol#: Read the Vol# out of an image file"""
+        if not self.fp:
+            print ("Error in get_image_volume: No File Open?")
+            return self.vol
+        try:
+            self.fp.seek(0x900)     # Offset 2304
+            raw = self.fp.read(1)
+            self.fp.seek(0) 
+            if raw:
+                self.vol = ord(raw)
+                print(f"Image file's volume#: {self.vol}")
+            return self.vol
+        except OSError as e:
+            print(f"Error: Can't read '{self.fp.name}'?")
+            print(e)
+            return self.vol
+
+    def read_track_from_image(self):
+        """RdBuf: Read one track of data from the file buffer"""
+        track = self.fp.read(self.track_size)
+        if len(track) != self.track_size:
+            print("Short read: {len(track)}/{self.track_size}. Unable to read file?")
+            errout()
+        else:
+            return track
+
+    def volume_override(self):
+        """VolOverRide: enable/disable overriding the disk volume number."""
+
         print( "\nUse image Vol#? (Y/N)" if self.override
               else "\nOver ride image Vol #? (Y/N)", end=" ")
 
@@ -342,13 +375,14 @@ class H89Trans:
         if self.y_n_prompt():
             self.override = not self.override
 
-        # Set Volume #, if overriding
+    def get_volume(self):
+        # GetVol#: Prompt for Volume #, if overriding
+        self.volume_override()
         if self.override:
             try:
                 val = input(f"Enter Vol# [{self.vol}]: ")
                 if val: self.vol = int(val) & 0xFF  # Ensure 8-bit
             except ValueError: print("   Invalid - Vol# unchanged.")
-
 
     def set_interleave(self):
         """SetIntrLv: Ask user what floppy disk interleave they would like"""
@@ -383,43 +417,6 @@ class H89Trans:
         self.wait_char('S')     # Wait for the H89 to finish.
         print("H89LDR2 saved to bootable disk on H89.")
 
-    def set_baud_rate(self):
-        """SetNewBaud."""
-        rates = {'4':9600, '3':4800, '2':2400, '1':1200, }
-        #        '5':19200, '6':38400, '7':57600, '8':115200}
-        print("\nSelect Baud ", end='')
-        for k, v in rates.items(): print(f" {k}={v} ", end='')
-        print("? ", end='', flush=True)
-        c = get_key()
-        print()
-        if c in rates:
-            self.baud = rates[c]
-            if self.ser:
-                self.ser.baudrate = self.baud
-                print(f"Baud rate updated to {self.baud}")
-        else:
-            print( f'{c if c.isprintable() else "that"}',
-                   'is not a valid number!' )
-            print( f'Baud rate remains at {self.ser.baudrate}' )
-
-    def get_image_volume(self):
-        """FileVol#: Read the Vol# out of an image file"""
-        if not self.fp:
-            print ("Error in get_image_volume: No File Open?")
-            return self.vol
-        try:
-            self.fp.seek(0x900)     # Offset 2304
-            raw = self.fp.read(1)
-            self.fp.seek(0) 
-            if raw:
-                self.vol = ord(raw)
-                print(f"Image file's volume#: {self.vol}")
-            return self.vol
-        except OSError as e:
-            print(f"Error: Can't read '{self.fp.name}'?")
-            print(e)
-            return self.vol
-
     def write_disk(self):
         """WrImage: Send a disk image to the H89."""
         if not self.fp: 
@@ -446,11 +443,12 @@ class H89Trans:
             self.send_interleave() 
             self.ser.write(b'W')
 
-            for track in range(40):
+            for track in range(self.num_tracks):
                 print(f"\rWriting Track {track}... ", end='', flush=True)
-                data = self.fp.read(self.track_size)
+                data = self.read_track_from_image()
                 self.ser.write(b'W')
-                for byte in data: self.ser.write(bytes([byte]))
+                #for byte in data: self.ser.write(bytes([byte]))
+                self.ser.write(bytes(data))
                 self.wait_char('W')
 
             print("\nDisk Write Complete.")
@@ -540,6 +538,25 @@ class H89Trans:
             print(e)
             return
 
+    def set_baud_rate(self):
+        """SetNewBaud: Prompt user to select a new baudrate"""
+        rates = {'4':9600, '3':4800, '2':2400, '1':1200, }
+        #        '5':19200, '6':38400, '7':57600, '8':115200}
+        print("\nSelect Baud ", end='')
+        for k, v in rates.items(): print(f" {k}={v} ", end='')
+        print("? ", end='', flush=True)
+        c = get_key()
+        print()
+        if c in rates:
+            self.baud = rates[c]
+            if self.ser:
+                self.ser.baudrate = self.baud
+                print(f"Baud rate updated to {self.baud}")
+        else:
+            print( f'{c if c.isprintable() else "that"}',
+                   'is not a valid number!' )
+            print( f'Baud rate remains at {self.ser.baudrate}' )
+
     def display_menu(self):
         """Cmnd?: Show options and get a key"""
         print("")
@@ -563,7 +580,7 @@ class H89Trans:
 
     def command_execute(self, choice):
         """CommandEx: Execute the key pressed from the menu."""
-        if   choice == 'V': self.volume_override_prompt()
+        if   choice == 'V': self.get_volume()
         elif choice == 'O': self.open_image_file()
         elif choice == 'W': self.write_disk()
         elif choice == 'R': self.read_disk()
