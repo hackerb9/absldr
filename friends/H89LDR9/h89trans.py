@@ -588,22 +588,21 @@ class H89Trans:
             print("Exiting to DOS...")
             exit(0)
 
-# The .SO (display split octal) word was unused in original Forth code.
-# It does something like this...
 def split_octal(i):
     """.SO: Display a 16-bit value in "split octal" notation.
+    The .SO word was unused in the original Forth code.  
 
     "Split Octal" is shown as two bytes each represented by an octal
-    numbers from 000 to 377, often just smushed together.
+    number from 000 to 377, often just smushed together.
     Mathematically, that's wrong as the number after 000377 should be
     000400 (in normal octal), but in split octal it is 001000
 
     I'm using the convention of adding a period between the two bytes
-    to disambiguate, but honestly there's a good reason this routine
-    wasn't used: Hexadecimal is simply better for 8-bit bytes.
+    to help disambiguate, but honestly there's a good reason this
+    routine wasn't used: Hexadecimal is simply better for 8-bit bytes.
     """
     if (i<0 or i>65535):
-        raise ValueError('Split octal can only represent numbers from 0 to 65535') 
+        raise OverflowError('Split octal can only represent numbers from 0 to 65535') 
     print( f'{i//256:03o}.{i%256:03o}' )
 
 
