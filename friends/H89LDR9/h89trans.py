@@ -510,28 +510,28 @@ class H89Trans:
             s = self.fp.read(8)
             import struct
             (magic, addr, length, entry) = struct.unpack('<HHHH', s)
-            # magic = s[0] | s[1]<<8
-            # addr  = s[2] | s[3]<<8
-            # length= s[4] | s[5]<<8
-            # entry = s[6] | s[7]<<8
-            print(f'Magic: {magic:04X}H, Load Addr: {addr:04X}H, Length: {length:04X}H, entry: {entry:04X}') 
-            if magic != 255:
-                print('\n    WARNING: This does not look like an ABS file\n')
+            print(f'Magic: {magic:04X}H, '
+                  f'Load Addr: {addr:04X}H, '
+                  f'Length: {length:04X}H, '
+                  f'Entry: {entry:04X}') 
             endaddr=addr+length
             if endaddr > 0xFFFF:
-                print('\n    WARNING: This will write beyond 64K of RAM and will fail.\n')
-
+                print('\n    WARNING: This writes beyond 64K of RAM!\n')
             if addr <= 0x1000 and endaddr >= 0x1000+1024-1:
-                print('\n    WARNING: This overwrites HALFSHIM (0x1000) and will fail.\n')
+                print('\n    WARNING: This overwrites HALFSHIM (0x1000) and will fail!\n')
             if addr <= 0x2329 and endaddr >= 0x2300:
-                print('\n    NOTE: This overwrites BOOTSTRP (0x2300).\n')
+                print('    NOTE: This overwrites BOOTSTRP (0x2300).')
             if addr <= 0x2329 and endaddr >= 0x2329+818-1:
-                print('\n    NOTE: This overwrites QUARTERSHIM (0x2329).\n')
-
+                print('    NOTE: This overwrites QUARTERSHIM (0x2329).')
             if entry == 0x1000:
-                print('\n    NOTE: This is a multipart file which returns to HALFSHIM.\n')
-            elif entry < addr or endaddr < entry:
-                print('\n    NOTE: The passes control to an address not within the program.\n')
+                print('    NOTE: This multipart file runs HALFSHIM again.')
+            else:
+                if entry < addr or endaddr < entry:
+                    print('\n    WARNING: Transfers control an entry point outside the program.\n')
+            if magic != 0x00FF:
+                print('\n    ERROR: {self.fp.name} is not an ABS file!')
+                print(  '           Magic should be 00FFH, not {magic:04X}H\n')
+                return 1
                 
             self.fp.seek(0)
             print(f"\rSending {self.fp.name} to H89... ", end='', flush=True)
@@ -590,7 +590,7 @@ class H89Trans:
         elif choice == 'B': self.set_baud_rate()
         elif choice == 'P': self.pp()
         elif choice == 'Q': self.write_loader('QUARTERSHIM.BIN')
-        elif choice == 'H': self.write_loader('HALFSHIM.BIN', 1024)
+        elif choice == 'H': self.write_loader('HALFSHIM.BIN')
         elif choice == 'A': self.send_abs()
         elif choice == 'X' or choice == '\x1B': 
             print("Exiting to DOS...")
