@@ -1,19 +1,5 @@
 ;;; STAGE 1/2 SHIM LOADER by Hackerb9.
 ;;; 
-;;; After a user has keyed in Dwight Elvey's BOOTSTRP.ASM at the
-;;; Monitor, send the QUARTERSHIM.BIN from a host computer over the
-;;; serial port instead of H89LDR2.ASM. All QUARTERSHIM does is unlock
-;;; the Floppy RAM and load the next 1024 bytes from the serial port
-;;; into addr 1000H and then executes it.
-
-;;; Once QUARTERSHIM is running, send this program, HALFSHIM. 
-
-;;; This program will read yet another program over the serial port
-;;; and execute it, similar to BOOTSTRP.ASM. The difference is that
-;;; the next file will be prefixed with an HDOS .ABS header, which
-;;; allows the data to be loaded into any arbitrary address and to be
-;;; of any length.
-
 ;;; Expects an 8 byte header similar to HDOS's .ABS format
 ;;; 
 ;;; 	0: FFH	(binary type)
@@ -27,18 +13,36 @@
 ;;; 
 ;;; Places received data starting at ADDR and then jumps to ENTRYPOINT.
 
-;;; CREATING THE BIN FILE
-;;; For cross assembly, use asmx -l -e -b1000H -C8080 HALFSHIM.ASM
-
-;;; USAGE
-;;; After keying in BOOTSTRP.OCL, send the QUARTERSHIM then HALFSHIM binaries from a PC:
+;;; SHORT USAGE:
+;;; 
 ;;; 	h8clxfer.py -l -f QUARTERSHIM.ASM.bin
 ;;; 	h8clxfer.py -l -f HALFSHIM.ASM.bin
 ;;; After sending HALFSHIM, send an ABS file to start it running:
 ;;; 	h8clxfer.py -l -f GACTAGA.ABS
 
+;;; USAGE EXPLANATION:
+;;; 
+;;; After a user has keyed in Dwight Elvey's BOOTSTRP.OCL at the
+;;; Monitor, send the QUARTERSHIM.BIN from a host computer over the
+;;; serial port instead of H89LDR2.ASM. All QUARTERSHIM does is unlock
+;;; the Floppy RAM and load the next 1024 bytes (which is this
+;;; program, HALFSHIM) from the serial port into addr 1400H and then
+;;; executes it.
+;;; 
+;;; HALFSHIM will read yet another program over the serial port and
+;;; execute it, similar to BOOTSTRP.ASM and QUARTERSHIM. The
+;;; difference is that the next file's data is expected to be prefixed
+;;; with an HDOS .ABS header. That allows the data to be loaded in any
+;;; address in the H89 which is important since the Z80 didn't have
+;;; proper position independent code. The ABS format also allows us to
+;;; send programs of any length (not just 818 bytes) and to jump to
+;;; any specified entry point when finished.
+
+;;; CREATING THE BIN FILE
+;;; For cross assembly, use asmx -l -e -b1400H -C8080 HALFSHIM.ASM
+
 ;;; Version 0.3 December 17, 2025
-;;; -- compile to ORG 1000H (Floppy RAM), presuming QUARTERSHIM will load us.
+;;; -- compile to ORG 1400H (Floppy RAM), presuming QUARTERSHIM will load us.
 ;;; Version 0.2 December 14, 2025
 ;;; -- read .ABS files directly using HDOS's 8-byte header.
 ;;; Version 0.1 December 14, 2025
@@ -49,21 +53,24 @@
 
 LP      EQU     0E0H 	; Base I/O address of 1st port on H-88-3 (340 Octal)
 RX      EQU     LP	; Received byte
+TX      EQU     LP	; Transmit byte
 LSTAT   EQU     LP+5	; Line Status: Bit 0 is set if data has arrived.
 
-FBEGIN	EQU	1000H
-FEND	EQU	17FFH
+FBEGIN	EQU	1400H		; Floppy RAM address
+FSIZE	EQU	1800H-FBEGIN	; Num bytes in Floppy RAM (1K)
 
-        ORG	FBEGIN	; This code lives in the Floppy RAM buffer
+;;; This code lives in the Floppy RAM buffer which must be unlocked
+;;; before it can be written to. (Set bit 7 on port 7FH). See QUARTERSHIM.
+        ORG	FBEGIN	
 
 	;; H89TRANS.COM and h89trans.py both send 'A' after loading the second stage.
 	CALL	GETCH
 	;; Reply with '?' which lets H89TRANS know we're alive.
-        MVI	A, '?'
+        MVI	A,'?'
         CALL	CHROUT
 
 	;; --- READ HEADER --- 
-SHIM:	CALL    GETCH       ; Ignore first two bytes of .ABS file
+SHIM	CALL    GETCH       ; Ignore first two bytes of .ABS file
 	CALL    GETCH	    ; (TODO: Maybe halt execution if not FF00?)
 
 	CALL    GETCH       ; Get Destination ADDR into DE
@@ -82,7 +89,7 @@ SHIM:	CALL    GETCH       ; Ignore first two bytes of .ABS file
         MOV     H,A
 
 	;; --- MAIN LOAD LOOP: Std 16-bit 8080 loop countdown ---
-LOOP:	CALL    GETCH       ; Read byte from serial into A
+LOOP	CALL    GETCH       ; Read byte from serial into A
 	STAX	D	    ; Store byte in destination (*DE)
 	INX	D	    ; Next memory location
         DCX     B           ; Decrement LENGTH (BC) -- (Does not set Z-flag!)
@@ -95,14 +102,14 @@ LOOP:	CALL    GETCH       ; Read byte from serial into A
 
 ;;; --- SERIAL INPUT ROUTINE ---
 ;;; (Presumes serial port already configured by Stage 0 loader.)
-GETCH:	IN      LSTAT       ; Get serial port status 
+GETCH	IN      LSTAT       ; Get serial port status 
         RAR		    ; Put "ready" bit in Carry
         JNC     GETCH       ; Wait for char
         IN      RX	    ; Read the byte into A
         RET
 
 
-CHROUT:
+CHROUT
         IN LSTAT
         ANI 60H			; Logical OR with A register
         CPI 60H			; Is UART ready to send?
@@ -112,8 +119,8 @@ CHROUT:
 
 
 ;;; --- PAD GAP ---
-;;; Reserve enough bytes to match the length of H89LDR2.
-PRGEND:	DS	FBEGIN+1024-PRGEND-1
+;;; QUARTERSHIM expects a file exactly 1K in length, so reserve extra bytes.
+PRGEND	DS	FBEGIN+FSIZE-PRGEND-1
 	NOP
 
 
