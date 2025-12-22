@@ -65,15 +65,24 @@ LSTAT   EQU     LP+5	; Line Status: Bit 0 is set if data has arrived.
 FBEGIN	EQU	1400H		; Floppy RAM address
 FSIZE	EQU	1800H-FBEGIN	; Num bytes in Floppy RAM (1K)
 
+DBGBUF	EQU	4000H		; Area to write flags showing progress.
+
 ;;; This code lives in the Floppy RAM buffer which must be unlocked
 ;;; before it can be written to. (See QUARTERSHIM.ASM).
         ORG	FBEGIN	
+	LXI	H, DBGBUF	; Debugging
+	MVI	M, 1		; Debugging
+	INX	H		; Debugging
 
 ;;;  Weirdly, the floppy starts up when I run this code. Is it because
 ;;;  of where it is located in memory?
+
 	;; Relock the Floppy RAM. (Doesn't seem to work).
 	XRA	A
 	OUT	7FH
+
+	MVI	M, 2
+	INX	H
 
 AWAIT:
 	CALL	CHRIN
@@ -83,14 +92,23 @@ AWAIT:
         CALL	CHROUT		;; h89trans.py sends '?' after sending HALFSHIM, expects '?'.
 	JMP	AWAIT
 
+	MVI	M, 3		; Debugging
+	INX	H		; Debugging
+
+
+
 	;; h89trans.py sends 'A' before sending an ABS file, expects 'A'.
 AYAY:	
 	;; Reply with 'A': We're ready to receive an ABS file.
         MVI	A,'A'
         CALL	CHROUT
 
+	MVI	M, 4		; Debugging
+	INX	H		; Debugging
+
 	;; --- READ ABS HEADER --- 
 HDR:	CALL    CHRIN       ; Ignore first two bytes of .ABS file
+	CALL	DEBUG
 	CALL    CHRIN	    ; (TODO: Maybe halt execution if not FF00?)
 
 	CALL    CHRIN       ; Get Destination ADDR into DE
@@ -141,6 +159,10 @@ CHROT2: IN 	LSTAT
         MOV 	A,D
         OUT 	TX
         RET
+
+DEBUG:	PUSH	D
+	
+	POP	D
 
 ;;; --- PAD GAP ---
 ;;; QUARTERSHIM expects a file exactly 1K in length, so reserve extra bytes.
