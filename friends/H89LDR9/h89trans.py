@@ -84,6 +84,16 @@ else:
 
 
 class H89Trans:
+    BBEGIN = 0x2300            # BOOTSTRP.ASM's ORG
+    BEND = 0x2329              # BOOTSTRP.ASM's last byte (next loader's ORG)
+    LBEGIN = 0x2329            # H89LDR2.ASM's ORG (yes, overwrites BEND)
+    LEND = 0x265B              # H89LDR2.ASM's DBEND
+    LDR_SIZE = LEND-LBEGIN     # H89LDR2.BIN's size (818 bytes)
+
+    FBEGIN = 0x1400             # Floppy RAM start (HALFSHIM's ORG)
+    FEND = 0x1800 - 1           # Floppy RAM last byte
+    FSIZE = FEND-FBEGIN+1       # Floppy RAM length (1K)
+
     def __init__(self):
         self.ser = None            	# The serial.Serial object.
         self.port = None        	# Automatically detected
@@ -458,9 +468,11 @@ class H89Trans:
             return
 
     def write_loader(self, filename="H89LDR2.BIN", ldr_size = None):
-        """Load the next stage loader, H89LDR2, on the H89"""
+        """WrLdr: Load the next stage loader, H89LDR2, on the H89.
+        Presumes stage zero (BOOTSTRP.OCL) was already entered by hand."""
+
         if not ldr_size:
-            ldr_size = (0x265B - 0x2329)  # 818 bytes for H89LDR2.BIN
+            ldr_size = self.LDR_SIZE 		# 818 bytes
         try:
             with open(filename, "rb") as f:
                 data = f.read()
@@ -481,12 +493,34 @@ class H89Trans:
                     # Send the next byte of the loader
                     self.ser.write(bytes([byte]))
 
-                # 40 Null bytes padding erases stage 0 loader
-                for _ in range(40): self.ser.write(b'\x00')
+                # At this point, the next loader should have started
+                # on the H89 as the final byte sent overwrites the
+                # last byte of BOOTSTRP.
+
+                # XXX Why did the original Forth code send 40 null bytes?
+                # 1. Because H89LDR2 always discards the first byte as "JUNK"?
+                #    Plausible. But why does H89LDR2 do that when
+                #    BOOTSTRP has already initialized the serial port?
+                #
+                # 2. Give H89LDR2 time to initialize before receiving
+                #    commands? Possible, but very unlikely since
+                #    9600bps is 1 ms per char, but the H89's clock
+                #    period is 0.0005 ms. It'd take 2000 T-states! No
+                #    instruction on the 8080 takes over 20 T-states,
+                #    so H89LDR2 would have to execute over 100
+                #    instructions to cause a timing glitch. To be
+                #    conservative, call that 50.
+                #
+                # 3. In case H89LDR2 was shorter than expected?
+                #    Implausible.
+
+                self.ser.write(b'\x00' * 40)
 
                 # Make sure the next stage loader is alive
                 self.ser.write(b'A')
-                self.wait_char(chr(ord('?') ^ 0x20))
+                # XXX Why did Forth xor '?' with 0x20 instead of straight?
+#                self.wait_char(chr(ord('?') ^ 0x20))
+                self.wait_char(chr(ord('?') ))
                 print("H89 Loader active and ready.")
         except OSError as e:
             print(f"Can't read Loader File '{filename}'?")
@@ -517,13 +551,13 @@ class H89Trans:
             endaddr=addr+length
             if endaddr > 0xFFFF:
                 print('\n    WARNING: This writes beyond 64K of RAM!\n')
-            if addr <= 0x1000 and endaddr >= 0x1000+1024-1:
-                print('\n    WARNING: This overwrites HALFSHIM (0x1000) and will fail!\n')
-            if addr <= 0x2329 and endaddr >= 0x2300:
-                print('    NOTE: This overwrites BOOTSTRP (0x2300).')
-            if addr <= 0x2329 and endaddr >= 0x2329+818-1:
-                print('    NOTE: This overwrites QUARTERSHIM (0x2329).')
-            if entry == 0x1000:
+            if addr <= self.FEND and endaddr >= self.FBEGIN:
+                print('\n    WARNING: This overwrites HALFSHIM ({self.FBEGIN:04X}H) and will fail!\n')
+            if addr <= self.BEND and endaddr >= self.BBEGIN:
+                print('    NOTE: This overwrites BOOTSTRP ({self.BBEGIN:04x}).')
+            if addr <= self.LEND and endaddr >= self.LBEGIN:
+                print('    NOTE: This overwrites QUARTERSHIM ({self.BEND:04x}).')
+            if entry == self.FBEGIN:
                 print('    NOTE: This multipart file runs HALFSHIM again.')
             else:
                 if entry < addr or endaddr < entry:
@@ -590,7 +624,7 @@ class H89Trans:
         elif choice == 'B': self.set_baud_rate()
         elif choice == 'P': self.pp()
         elif choice == 'Q': self.write_loader('QUARTERSHIM.BIN')
-        elif choice == 'H': self.write_loader('HALFSHIM.BIN')
+        elif choice == 'H': self.write_loader('HALFSHIM.BIN', self.FSIZE)
         elif choice == 'A': self.send_abs()
         elif choice == 'X' or choice == '\x1B': 
             print("Exiting to DOS...")
