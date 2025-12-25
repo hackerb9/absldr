@@ -70,19 +70,20 @@ DBGBUF	EQU	4000H		; Area to write flags showing progress.
 ;;; This code lives in the Floppy RAM buffer which must be unlocked
 ;;; before it can be written to. (See QUARTERSHIM.ASM).
         ORG	FBEGIN	
+
 	LXI	H, DBGBUF	; Debugging
-	MVI	M, 1		; Debugging
-	INX	H		; Debugging
+	XRA	A
+	CALL	DEBUG
 
 ;;;  Weirdly, the floppy starts up when I run this code. Is it because
 ;;;  of where it is located in memory?
 
-	;; Relock the Floppy RAM. (Doesn't seem to work).
+	;; Relock the Floppy RAM. (Does this work?)
 	XRA	A
 	OUT	7FH
 
-	MVI	M, 2
-	INX	H
+	INR	A
+	CALL	DEBUG
 
 AWAIT:
 	CALL	CHRIN
@@ -92,23 +93,16 @@ AWAIT:
         CALL	CHROUT		;; h89trans.py sends '?' after sending HALFSHIM, expects '?'.
 	JMP	AWAIT
 
-	MVI	M, 3		; Debugging
-	INX	H		; Debugging
-
-
-
 	;; h89trans.py sends 'A' before sending an ABS file, expects 'A'.
 AYAY:	
+
 	;; Reply with 'A': We're ready to receive an ABS file.
         MVI	A,'A'
         CALL	CHROUT
-
-	MVI	M, 4		; Debugging
-	INX	H		; Debugging
+	CALL	DEBUG
 
 	;; --- READ ABS HEADER --- 
 HDR:	CALL    CHRIN       ; Ignore first two bytes of .ABS file
-	CALL	DEBUG
 	CALL    CHRIN	    ; (TODO: Maybe halt execution if not FF00?)
 
 	CALL    CHRIN       ; Get Destination ADDR into DE
@@ -120,6 +114,8 @@ HDR:	CALL    CHRIN       ; Ignore first two bytes of .ABS file
         MOV     C,A
         CALL    CHRIN
         MOV     B,A
+
+	HLT
 
 	CALL    CHRIN       ; Get Jump ADDR into HL
         MOV     L,A
@@ -141,13 +137,14 @@ LOOP:	CALL    CHRIN       ; Read byte from serial into A
 
 	;; --- EXECUTE NEXT STAGE ---
         PCHL                ; Jump to the received code's ENTRY address.
-
+	
 ;;; --- SERIAL INPUT ROUTINE ---
 ;;; (Presumes serial port already configured by Stage 0 loader.)
 CHRIN:	IN      LSTAT       ; Get serial port status 
         RAR		    ; Put "ready" bit in Carry
         JNC     CHRIN       ; Wait for char
         IN      RX	    ; Read the byte into A
+	CALL	DEBUG
         RET
 
 CHROUT: 
@@ -160,9 +157,10 @@ CHROT2: IN 	LSTAT
         OUT 	TX
         RET
 
-DEBUG:	PUSH	D
-	
-	POP	D
+DEBUG:	
+	MOV	M, A		; Debugging
+	INX	H		; Debugging
+	RET	
 
 ;;; --- PAD GAP ---
 ;;; QUARTERSHIM expects a file exactly 1K in length, so reserve extra bytes.
