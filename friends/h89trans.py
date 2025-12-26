@@ -2,6 +2,7 @@
 
 # Based on Dwight Elvey's H89TRANS.SEQ
 
+# v 2.0 Adding support for communicating with QUARTERSHIM and ABSLDR. 
 # v 1.0 This is a one-to-one port from Forth to Python by hackerb9.
 
 # It should work almost identically to H89TRANS.COM as it is nearly
@@ -168,24 +169,21 @@ class H89Trans:
 
     def wait_char(self, target):
         """WaitChar. Blocks until target char received from H89."""
+        if type(target) is str:
+            target = bytes(target, encoding='UTF-8')
         target = target.upper()
         while True:
             try:
                 raw = self.ser.read(1)
                 if not raw: continue
-
-                # Save upper and lower case for later...
-                self.char_of_wait = raw.decode('ascii', errors='ignore')
-
+                # Save upper/lower case for later...
+                self.char_of_wait = raw
                 # ... but inspect as upper case.
-                if self.char_of_wait.upper() == target:
+                if raw.upper() == target:
                     break
                 else:
-                    t = target
-                    t = t if t.isprintable() else f'{ord(t):02X}'
-                    c = self.char_of_wait
-                    c = c if c.isprintable() else f'{ord(raw):02X}'
-                    print(f'wait_char: Waiting for "{t}", got "{c}" ({ord(raw):02X})', flush=True)
+                    print(f'wait_char: Waiting for {prtchr(target)}, '
+                          f'got {prtchr(raw)}', flush=True)
 
             except serial.SerialException:
                 print("\nConnection lost during wait_char."); return
@@ -267,7 +265,7 @@ class H89Trans:
 
     def is_h89ldr2_alive(self):
         """Is H89LDR2 loaded and responding?"""
-        self.ser.write(b'?')
+        self.ser.write(b'A')
         ch = self.ser.read(1)   # See initialize_port for timeout.
         if not ch:
             print("\n    Error: H89 is not responding.")
@@ -520,7 +518,70 @@ class H89Trans:
                 self.ser.write(b'A')
                 # XXX Why did Forth xor '?' with 0x20 instead of straight?
 #                self.wait_char(chr(ord('?') ^ 0x20))
-                self.wait_char(chr(ord('?') ))
+                self.wait_char('?')
+                print("H89 Loader active and ready.")
+        except OSError as e:
+            print(f"Can't read Loader File '{filename}'?")
+            print(e)
+            return
+
+    def send_bytes_to_H89(self, bytes, handshake=None):
+        """A generic routine for sending any data to the H89 over the
+        serial port. Returns True is successful."""
+
+        if handshake:
+            if type(handshake) is str:
+                handshake=bytes(handshake, encoding='UTF-8')
+            self.ser.write(handshake)
+            self.wait_char(handshake)
+        try:
+            with open(filename, "rb") as f:
+                data = f.read()
+                file_size=len(data)
+                if file_size != ldr_size:
+                    print(f"Error: {filename} is {file_size} bytes, expected {ldr_size}.")
+                    return
+                else:
+                    print(f"Sending {filename} ({file_size} bytes)...")
+
+                # Send bytes in reverse-order to match Forth '1- dup c@'
+                for byte in reversed(data):
+                    # Check if H89 sent anything back
+                    if self.ser.in_waiting > 0:
+                        if self.ser.read(1) == b'?':
+                            print("\nAlready loaded?")
+                            return 
+                    # Send the next byte of the loader
+                    self.ser.write(bytes([byte]))
+
+                # At this point, the next loader should have started
+                # on the H89 as the final byte sent overwrites the
+                # last byte of BOOTSTRP.
+
+                # XXX Why did the original Forth code send 40 null bytes?
+                # 1. Because H89LDR2 always discards the first byte as "JUNK"?
+                #    Plausible. But why does H89LDR2 do that when
+                #    BOOTSTRP has already initialized the serial port?
+                #
+                # 2. Give H89LDR2 time to initialize before receiving
+                #    commands? Possible, but very unlikely since
+                #    9600bps is 1 ms per char, but the H89's clock
+                #    period is 0.0005 ms. It'd take 2000 T-states! No
+                #    instruction on the 8080 takes over 20 T-states,
+                #    so H89LDR2 would have to execute over 100
+                #    instructions to cause a timing glitch. To be
+                #    conservative, call that 50.
+                #
+                # 3. In case H89LDR2 was shorter than expected?
+                #    Implausible.
+
+                self.ser.write(b'\x00' * 40)
+
+                # Make sure the next stage loader is alive
+                self.ser.write(b'A')
+                # XXX Why did Forth xor '?' with 0x20 instead of straight?
+#                self.wait_char(chr(ord('?') ^ 0x20))
+                self.wait_char('?')
                 print("H89 Loader active and ready.")
         except OSError as e:
             print(f"Can't read Loader File '{filename}'?")
@@ -568,10 +629,10 @@ class H89Trans:
                 return 1
 
             # Make sure ABSLDR is running
-            self.ser.write(b'A')
+            self.ser.write(b'F')
             print('Checking if ABSLDR is running on H89... ', end='', flush=True)
             # This rules out H89LDR2 which will respond '?'
-            self.wait_char(chr(ord('A') ))
+            self.wait_char(chr(ord('F') ))
             print('All good.')
 
             self.fp.seek(0)
@@ -635,7 +696,7 @@ class H89Trans:
         elif choice == 'B': self.set_baud_rate()
         elif choice == 'P': self.pp()
         elif choice == 'Q': self.write_loader('QUARTERSHIM.BIN')
-        elif choice == 'H': self.write_loader('ABSLDR.BIN', self.FSIZE)
+        elif choice == 'F': self.send_to_fram('ABSLDR.BIN', self.FSIZE)
         elif choice == 'A': self.send_abs()
         elif choice == 'X' or choice == '\x1B': 
             print("Exiting to DOS...")
@@ -643,7 +704,7 @@ class H89Trans:
 
 def split_octal(i):
     """.SO: Display a 16-bit value in "split octal" notation.
-    The .SO word was unused in the original Forth code.  
+    The .SO word was present but unused in the original Forth code.  
 
     "Split Octal" is shown as two bytes each represented by an octal
     number from 000 to 377, often just smushed together.
@@ -658,6 +719,17 @@ def split_octal(i):
         raise OverflowError('Split octal can only represent numbers from 0 to 65535') 
     print( f'{i//256:03o} {i%256:03o}' )
 
+def prtchr(c):
+    '''Given a character k, return a printable string for it, if
+    possible, including its hex value. A -> "A" (41H)
+    '''
+    if c:
+        o = f'{ord(c):02X}H'
+        if type(c) is bytes:  c = c.decode(errors='ignore')
+        if not c.isprintable():  c = ""
+        return f'{c} ({o})'
+    else:
+        return ""
 
 def main():
 
