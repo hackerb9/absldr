@@ -157,9 +157,8 @@ class H89Trans:
         except serial.SerialException as e:
             print(f"\n--- ERROR: Could not open port {port} ---")
             print(f"Details: {e}")
-# XXX debugging
-#            exit(1)
-            return serial.Serial() 		# For debugging 
+            exit(1)
+
 
     def pp(self):
         """PP: Test word used to check status of ports"""
@@ -579,7 +578,7 @@ class H89Trans:
 
                 # Make sure the next stage loader is alive
                 self.ser.write(b'A')
-                # XXX Why did Forth xor '?' with 0x20 instead of straight?
+                # XXX Why did Forth xor '?' with 0x20?
 #                self.wait_char(chr(ord('?') ^ 0x20))
                 self.wait_char('?')
                 print("H89 Loader active and ready.")
@@ -694,10 +693,13 @@ class H89Trans:
         elif choice == 'S': self.save_loader_to_disk()
         elif choice == 'I': self.set_interleave()
         elif choice == 'B': self.set_baud_rate()
+
+        # XXX To do: show these in the menu
         elif choice == 'P': self.pp()
         elif choice == 'Q': self.write_loader('QUARTERSHIM.BIN')
         elif choice == 'F': self.send_to_fram('ABSLDR.BIN', self.FSIZE)
         elif choice == 'A': self.send_abs()
+
         elif choice == 'X' or choice == '\x1B': 
             print("Exiting to DOS...")
             exit(0)
