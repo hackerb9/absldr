@@ -87,7 +87,7 @@ else:
 class H89Trans:
     BBEGIN = 0x2300            # BOOTSTRP.ASM's ORG
     BEND = 0x2329              # BOOTSTRP.ASM's last byte (next loader's ORG)
-    LBEGIN = 0x2329            # H89LDR2.ASM's ORG (yes, overwrites BEND)
+    LBEGIN = 0x2329            # H89LDR2.ASM's ORG (yes, this overwrites BEND)
     LEND = 0x265B              # H89LDR2.ASM's DBEND
     LDR_SIZE = LEND-LBEGIN     # H89LDR2.BIN's size (818 bytes)
 
