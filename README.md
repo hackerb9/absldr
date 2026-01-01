@@ -20,7 +20,7 @@ arbitrary address and to be of any length.
 
 [H89LDR]: friends/H89LDR9/
 
-## Quick Usage
+## Quick Start Usage
 
 1. Key in Dwight Elvey's [BOOTSTRP.OCL][BOOTSTRP.OCL]
 2. Send [QUARTERSHIM.BIN](QUARTERSHIM.BIN)
@@ -29,8 +29,27 @@ arbitrary address and to be of any length.
 
 ## Usage
 
-After keying in Dwight Elvey's BOOTSTRP, send QUARTERSHIM and the
-ABSLDR binary from a PC using hackerb9's [h89trans.py][h89trans.py].
+1. Key in [BOOTSTRP.OCL][BOOTSTRP.OCL] on the H89
+
+1. On a PC run friends/h89trans.py.
+
+1. Type 'Q' to send QUARTERSHIM.BIN to the H89 over the serial port.
+
+1. Type 'F' to send ABSLDR.BIN and load it into floppy RAM. 
+
+1. Type 'O' to open an ABS file
+   * type 'GACTAGA.ABS' (the ABS filename to send) and hit Enter
+
+1. Type 'A' to send the file to the H89 and start it running
+
+<details>
+<summary>Verbose Usage</summary><ul>
+
+## Verbose Usage
+
+Follow this procedure to key in Dwight Elvey's BOOTSTRP and send an
+arbitrary .ABS file from a PC to your H89 over the serial port using
+hackerb9's [h89trans.py][h89trans.py].
 
 0. Connect your PC with a straight (not null) serial cable to the port
    labelled **430** on the back of your H89.
@@ -51,6 +70,8 @@ ABSLDR binary from a PC using hackerb9's [h89trans.py][h89trans.py].
    4. Press <kbd>A</kbd> to send the ABS file to your H89. It will
       start running automatically.
 
+</ul></details>
+
 [BOOTSTRP.OCL]: friends/H89LDR9/BOOTSTRP.OCL
 
 ## About
@@ -58,25 +79,52 @@ ABSLDR binary from a PC using hackerb9's [h89trans.py][h89trans.py].
 I wrote this because I recently purchased a Zenith Z-89 and its floppy
 drive isn't working yet. 
 
-There is a nifty program by Dwight Elvey called H89LDR which gives the
-users a small "Stage 0" boot loader called BOOTSTRP.OCL they can key
+There is a nifty set of programs by Dwight Elvey called H89LDR which
+includes a small "Stage 0" boot loader called BOOTSTRP.OCL one can key
 into the builtin Monitor program. It is only 43 bytes, but it is just
-enough that it can receive the main boot loader over the serial port
-and start running it. Normally that program would be H89LDR2 which
-lets your PC read from and write to the H89 floppy drives over the
-serial port. 
+enough that it can receive the main boot loader over the serial port.
+Normally that program would be H89LDR2 which lets your PC read from
+and write to the H89 floppy drives over the serial port.
 
 But, if your floppy drive isn't working and you still want to try
 running something without keying in every byte, what do you do?
 
-Well, you can try this program. When you send ABSLDR (instead of
-H89LDR2) to the Stage 0 bootstrap, it will wait for yet another
-program to be sent over the serial port. This time it will expect an
-8-byte header before the binary code. That header lets us choose where
-the program will be loaded, how many bytes to receive, and jump to any
-arbitrary address we want. (Even back to ABSLDR, if more parts are
-needed to load into memory.)
+Well, you can try this program, ABSLDR, which will wait for yet
+another program to be sent over the serial port. This time it will
+expect an 8-byte header before the binary code. That header lets us
+choose where the program will be loaded, how many bytes to receive,
+and jump to any arbitrary address we want. (Even back to ABSLDR, if
+more parts are needed to load into memory.)
  
+### New Handshakes: 'F' and 'B'
+
+Dwight Elvey's H89LDR uses single character command and response
+protocol between the PC and H89 for the various functions. QUARTERSHIM
+and ABSLDR only do one thing and don't need such a protocol.
+Eventually, I'd like to see QUARTERSHIM merged with H89LDR so people
+don't have to figure out which one they need to send after
+BOOTSTRP.OCL.
+
+To facilitate that, when QUARTERSHIM is running on the H89 it waits
+for the letter 'F'. It replies with an 'F' to let the PC know it is
+ready to receive into Floppy-RAM. It places the next 1024 bytes into
+1400₁₆–17FF₁₆ and then sends an 'F' back to the PC before jumping to
+1400₁₆.
+
+The ABSLDR program likewise has a handshake, waiting for the letter
+'B' and replying with a 'B' before accepting a .ABS file on the H89.
+It reads the next 8 bytes of the ABS header (see below) to determine
+how many bytes it will load and where to put them. Once the file is
+loaded, ABSLDR sends another 'B' and jumps to the Entry Point
+specified in the .ABS header.
+
+[Side note: Why not using the more obvious letter 'A' to send ABS
+files? We cannot because Dwight Elvey's H89TRANS.SEQ program currently
+uses the letter 'A' as an undocumented check if H89LDR is alive. (I
+think '?' would have made more sense given that the expected response
+is '?'). ]
+
+
 ### Header format
 
 ABSLDR expects an 8 byte header which is the same as HDOS's .ABS
@@ -116,7 +164,7 @@ the MG's asmx to create incorrect binary files.]
 * This is completely untested. If you try this, please leave feedback to
   let me know.
 
-* Arbitrary .ABS files from HDOS are unlikely to work.
+* Random .ABS files from HDOS are unlikely to work.
 
   * They may call HDOS routines which aren't loaded into memory.
     Theoretically, one might be able to chain together custom .ABS
@@ -195,10 +243,6 @@ the MG's asmx to create incorrect binary files.]
 
 ## TODO
 
-1. Remove references h8clxfer from this file. 
-1. Solidify protocol: 'F' for sending a 1K file to be placed in Floppy
-   RAM at 1400H. 'B' for sending an ABS file. 'A' for Alive check
-   (responds with '?').
 1. Get it working on actual hardware.
 1. Output text to the H89 / H19 screen.
 1. Try running non-trivial HDOS .ABS programs by preloading parts of
@@ -221,15 +265,13 @@ where I left off on my Python 3 version of h8clxfer here:
 
 When h8clxfer was a bust, I started over from scratch, porting
 H89TRANS.SEQ from Forth to Python. (See [h89trans.py][h89trans.py]). I
-worked at the function-call level, so it should function identically
-to the original H89TRANS.COM, except for some added frills, like
+worked at the function-call level, so it should work identically to
+the original H89TRANS.COM, except for some added frills, like
 autodetecting your serial ports and not dying on errors.
 
-`h89trans.py` should work on any operating system that can run Python,
+`h89trans.py` should run on any operating system that can run Python,
 but has only been tested on Debian GNU/Linux. If you try h89trans.py
 on Microsoft Windows or Apple MacOS, I'd like to hear from you
 regardless of whether it works or not.
-
-
 
 [h89trans.py]: friends/H89LDR9/h89trans.py "Hackerb9's Python port of Dwight's H89TRANS"
