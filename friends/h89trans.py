@@ -44,6 +44,10 @@ import sys
 import os
 import time
 
+# Test without any serial ports
+DEBUG = True
+
+
 # --- Platform-specific Key Handling ---
 if os.name == 'nt':
     import msvcrt
@@ -107,7 +111,8 @@ class H89Trans:
         self.char_of_wait = None        # Character read during wait_char
         self.read_errors = 0            # Number of read errors encountered
         self.fp = None                  # The image file on the PC
-        self.fp_dir = 'Neither'         # Guard against clobbering files.
+        self.fp_dir = None              # Guard against clobbering files.
+        				# (fp_dir ∈ {'to h89', 'from h89'}) 
 
     def select_port(self):
         """SlctCom: Finds and opens a serial port."""
@@ -157,8 +162,10 @@ class H89Trans:
         except serial.SerialException as e:
             print(f"\n--- ERROR: Could not open port {port} ---")
             print(f"Details: {e}")
-            exit(1)
-
+            if not DEBUG:
+                exit(1)
+            else:
+                return serial.Serial()
 
     def pp(self):
         """PP: Test word used to check status of ports"""
@@ -207,19 +214,44 @@ class H89Trans:
             if k == 'N': return False
             print("Y or N pls?", end='', flush=True)
 
+    def file_prompt(self, prompt):
+        while True:
+            try:
+                print(prompt, end="")
+                filename = input().strip()
+
+                if not filename:
+                    print('Press Ctrl+C to cancel')
+                    print('Current directory: [' + os.path.realpath('.') + ']')
+                    print('Directory listing:', ', '.join(os.listdir('.')))
+                    continue
+
+                # Tolerate habitual DOSisms?
+#                if filename.startswith('chdir '): filename = filename[6:]
+#                if filename.startswith('cd '):    filename = filename[3:]
+
+                # Vaguely case-insignificant (if filenames are uppercase). 
+                if ( not os.path.exists(filename) and os.path.exists(filename.upper()) ):
+                    filename=filename.upper()
+
+                if os.path.isdir(filename):
+                    os.chdir(filename)
+                    print('[' + os.path.realpath('.') + ']')
+                    print(', '.join(os.listdir('.')))
+                else:
+                    return filename
+            except KeyboardInterrupt as e:
+                # Allow Control-C to cancel opening a file
+                return None
+
     def open_image_file(self):
         """OpenImageFile: Prompt for a filename to open/create."""
         if self.fp: self.fp=None
-        while True:
-            print("\nimage file? ", end="")
-            filename = input().strip()
-            if filename:
-                if os.path.isdir(filename):
-                    os.chdir(filename)
-                else:
-                    break
-            print(os.path.realpath('.'))
-            print(os.listdir('.'))
+
+        filename = self.file_prompt("\nimage file? ")
+        if not filename:
+            print('Cancelled')
+            return False
 
         if os.path.exists(filename) and os.path.getsize(filename):
             b = os.path.getsize(filename)
@@ -578,7 +610,7 @@ class H89Trans:
             else:
                 if entry < addr or endaddr < entry:
                     print('\n    WARNING: Transfers control an entry point outside the program.\n')
-            if magic != 0x00FF && magic != 0x01FF:
+            if magic != 0x00FF and magic != 0x01FF:
                 print('\n    ERROR: {self.fp.name} is not an ABS file!')
                 print(  '           Magic should be 00FFH, not {magic:04X}H\n')
                 return 1
@@ -628,8 +660,10 @@ class H89Trans:
               f"Override = {self.vol}]" if self.override else "From Image]")
         print("O open/create image file  [now: "
               f"{self.fp.name if self.fp else 'None'}]")
-        print("W write image to H89")
-        print("R read image from H89")
+        if self.fp and self.fp_dir == 'to h89':
+            print("W write image to H89")
+        if self.fp and self.fp_dir == 'from h89':
+            print("R read image from H89")
         print("L Send H89LDR2.BIN to H89")
         print("S Save loader on H89")
         print("I Set interleave  [= 1:"
@@ -699,7 +733,9 @@ def s(i:int) -> str:
 def main():
 
     """Command: Configure port, show menu, execute commands""" 
+    h = None
     try:
+        assert ('foo')
         h = H89Trans()
         h.select_port()
         while True:
@@ -713,9 +749,14 @@ def main():
                 h.select_port()
         
     except KeyboardInterrupt as e:
-        print("\nExiting")
+        print('\nExiting')
+    finally:
+        if h and h.fp:
+            h.fp.close()
+            if os.path.getsize(h.fp.name) == 0:
+                print(f'Removing empty file "{h.fp.name}"')
+                os.unlink(h.fp.name)
         exit(0)
-
 
 if __name__ == "__main__":
     main()
