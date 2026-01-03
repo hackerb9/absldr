@@ -578,7 +578,7 @@ class H89Trans:
             else:
                 if entry < addr or endaddr < entry:
                     print('\n    WARNING: Transfers control an entry point outside the program.\n')
-            if magic != 0x00FF:
+            if magic != 0x00FF && magic != 0x01FF:
                 print('\n    ERROR: {self.fp.name} is not an ABS file!')
                 print(  '           Magic should be 00FFH, not {magic:04X}H\n')
                 return 1
