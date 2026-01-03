@@ -1,0 +1,42 @@
+ECI     SPACE   4,10
+**      ECI - ENABLE CONSOLE INTERRUPTS
+*
+*       ENTRY   NONE
+*       EXIT    NONE
+*       USES    (PSW)
+*
+
+ECI     LDA     S.CDB
+        CPI     CDB.H84
+        JZ      ECI1                    IF  8250
+
+*       HAVE 8251
+
+        MVI     A,UCI.RE+UCI.TE+UCI.ER+UCI.IE
+        OUT     SC.UART+USR
+        RET
+
+*       HAVE 8250
+
+ECI1    MVI     A,UC.EDA
+        OUT     SC.ACE+UR.IER
+        RET
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

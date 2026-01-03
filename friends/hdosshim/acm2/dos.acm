@@ -1,0 +1,45 @@
+
+$DOS	SPACE	4,10
+**	$DOS - DISMOUNT OPERATING SYSTEM.
+*
+*	$DOS disounts all units of all directory devices	/80.04.gc/
+*
+*	THE USER IS MESSAGED ABOUT THE DISKS, AND THE OPERATING
+*	SYSTEM IS NOTIFIED.
+*
+*
+*	ENTRY	NONE
+*
+*	EXIT	(PSW)	= 'C' CLEAR IF NO ERROR
+*			  'C' SET   IF    ERROR
+*			   (A)  = ERROR CODE
+*
+*	USES	ALL
+*
+
+$DOS	CALL	$TYPTX
+	DB	NL,BELL,'Dismounting All Disks:',NL,ENL
+
+	CALL	$DOS.
+	RC
+
+	CALL	$TYPTX
+	DB	NL,'Remove the Disk(s). Hit RETURN when ready:',' '+200Q
+
+DOS1	CALL	$RCHAR		READ CHARACTER
+	CPI	NL
+	JNE	DOS1
+
+	ANA	A		CLEAR CARRY
+	RET
+$DOS.	SPACE	4,10
+$DOS.	MVI	A,OVL0
+	SCALL	.LOADO
+	RC
+
+	MVI	A,OVL1
+	SCALL	.LOADO
+	RC
+
+	SCALL	.DAD		Dismount all Disks		/80.09.gc/
+	RET

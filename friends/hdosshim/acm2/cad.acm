@@ -1,0 +1,41 @@
+**	$CAD - CODE AUGUSTAN DATE.
+*
+*	$CAD IS CALLED TO CODE AN AUGUSTAN DATE INTO THE FORM:
+*
+*
+*	----------------------------------------
+*	I  0  I  6 BITS  I  4 BITS  I  5 BITS  I
+*	----------------------------------------
+*		YEAR-70	      MON	DAY
+*		 1-63	     1-12	1-31
+*
+*	FROM THE FORM:
+*
+*	DD-MMM-YY
+*
+*	ENTRY	(HL) = ADDRESS OF STRING
+*	EXIT	'C' CLEAR IF OK
+*		 (DE) = 15 BIT VALUE
+*		 (HL) ADVANCED PAST '-YY'
+*		'C' SET IF ERROR
+*	USES	ALL
+
+
+$CAD	PUSH	H						/80.08/GC/
+	MVI	C,CADBL						/80.08.GC/
+	LXI	D,CADB						/80.08.GC/
+	CAL	$COMP						/80.08.GC/
+	JNZ	CAD0		'Is not 'No-Date'		/80.08.GC/
+	POP	D						/80.08.GC/
+	LXI	D,0		0  =>  No Date			/80.08.gc/
+	ANA	A		Clear 'C'			/80.08.gc/
+	RET							/80.08.GC/
+
+CAD0	POP	H						/80.08.GC/
+	CALL	$DDD		DECODE DECIMAL DIGITS
+	RC			ERROR
+	MOV	A,D
+	ANA	A
+	STC			ASSUME TOO LARGE
+	RNZ			TOO LARGE
+

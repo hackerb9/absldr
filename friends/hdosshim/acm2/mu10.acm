@@ -1,0 +1,13 @@
+$MU10   SPACE   4,10
+**      $MU10 - MULTIPLY UNSIGNED 16 BIT QUANTITY BY 10.
+*
+*       (HL) = (DE)*10
+*
+*       ENTRY   (DE) = MULTIPLIER
+*       EXIT    'C' CLEAR IF OK
+*                (HL) = PRODUCT
+*               'C' SET IF ERROR
+*       USES    D,E,H,L,F
+
+
+$MU10   EQU     30324A          IN H17 ROM

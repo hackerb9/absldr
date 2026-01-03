@@ -1,0 +1,19 @@
+ILDEHL  SPACE   4,10
+**      ILDELH  -  INDEXED LOAD OF DE FROM HL
+*
+*       'DE' GET THE FULL WORD VALUE POINTED TO BY 'HL', AND 'HL' IS
+*       INCREMENTED BY TWO.
+*
+*       ENTRY:  HL      = ADDRESS OF FULL WORD VALUE
+*
+*       EXIT:   DE      = (HL)
+*               HL      = HL + 2
+*
+*       USES:   DE
+*
+
+ILDEHL  MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        RET

@@ -1,0 +1,17 @@
+FLTDEF  SPACE   4,10
+**      FLTDEF - DEFAULT SECTOR DEFINITIONS
+
+        ORG     0
+FLT.CTY DS      1               CONSOLE TYPE FLAGS (FOR S.CONTY)
+FLT.CWI DS      1               CONSOLE WIDTH (FOR S.CONWI)
+FLT.CFC DS      1               CONSOLE FILL CHARACTERS NEEDED
+FLT.CRF DS      1               CONSOLE CHARACTER REQUIRING FILL(377Q IF NONE)
+FLT.MNC DS      1               MAXIMUM NUMBER OF I/O CHANNELS
+        DS      1               Hold Place (Formerly Track Delay) /80.06.gc/
+FLT.CDB DS      1               CONSOLE DEFINITION BYTE
+FLT.CBD DS      2               CONSOLE BAUD RATE
+FLT.BOP DS      1               BOOTUP FLAGS
+FLT.SAL DS      1               STAND-ALONE FLAG( != 0  => CAN GO STAND-ALONE)
+
+FLT.PBO DS      1               Permanent Boot Options          /80.08.gc/
+PBO.DAT EQU     00000001B       No-Date: 0=> No Date            /80.08.gc/

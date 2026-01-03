@@ -1,0 +1,23 @@
+XCHGBC  SPACE   4,10
+**      XCHGBC  -  XCHG BC
+*
+*       EXCHANGE THE 'BC' REGISTER PAIR WITH THE 'HL' REGISTER PAIR.
+*
+*       ENTRY:  BC      = ORIGINAL BC
+*               HL      = ORIGINAL HL
+*
+*       EXIT:   BC      = ORIGINAL HL
+*               HL      = ORIGINAL BC
+*
+*       USES:   BC,HL
+*
+
+XCHGBC  PUSH    PSW
+        MOV     A,B
+        MOV     B,H
+        MOV     H,A
+        MOV     A,C
+        MOV     C,L
+        MOV     L,A
+        POP     PSW
+        RET

@@ -1,0 +1,21 @@
+$TJMP   SPACE   4,10
+**      $TJMP - TABLE JUMP.
+*
+*       USAGE
+*
+*       CALL    $TJMP             (A) = INDEX
+*       DW      ADDR1
+*       .         .
+*       .         .
+*       .         .
+*       DW      ADDRN
+*
+*       ENTRY   (A) = INDEX
+*       EXIT    TO PROCESSOR
+*              (A) = INDEX*2
+*       USES    NONE.
+
+
+$TJMP   EQU     31061A          IN H17 ROM, (A) = INDEX*2
+
+$TJMP.  EQU     31062A          IN H17 ROM

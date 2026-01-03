@@ -1,0 +1,52 @@
+* * *	MFREADY determines if a mini-floppy drive is ready (has
+*	a volume in it and is up to speed).
+*
+*	By timing two disk rotations (normally 200 clock ticks),
+*	this routine determines the error time interval per disk
+*	rotation with an accuracy of 1 ms, or .5 percent.
+*
+*	By SETting  "MFRERR"  to the allowable rotation error
+*	in milliseconds, any disk drive whose rotation time is
+*	off by less than  "MFRERR"  will always be accepted,
+*	and any which is off by more than  "MFRERR+1"  will
+*	always be rejected.
+ 
+*	Copyright 1981 UltiMeth Corp.
+ 
+MFREADY	CALL	D.SDP		;TURN ON MOTOR AND DRIVE
+ 
+MFRLP1	LDA	D.DLYHS		;WAIT UNTIL HEAD LOAD DELAY IS ZERO
+	ANA	A
+	JNZ	MFRLP1
+ 
+	LXI	HL,.TICCNT	;GET CLOCK LOC
+	LXI	BC,2*11*2	;SET INITIAL BITS, TRANSITION COUNT
+	MOV	E,M		;GET PRESENT CLOCK VALUE
+	DCR	E		;SET TIMEOUT VALUE
+	CALL	MFRTRAN		;WAIT FOR TRANSITION OR TIMEOUT
+	MOV	D,M		;GET START TIME VALUE
+ 
+MFRLP2	CALL	MFRTRAN		;WAIT FOR TRANSITION OR TIMEOUT
+	DCR	C		;WAIT FOR ANY MORE TRANSITIONS -
+	JNZ	MFRLP2		;- YES, GO WAIT
+ 
+	SUB	D		;COMPUTE ELAPSED TIME
+	SUI	200-1-MFRERR	;OFFSET BY EXPECTED TIME MINUS ALLOWANCE
+	ADI	-1-2-MFRERR-MFRERR  ;SET ERROR (CARRY) IF ALLOWANCE EXCEEDED
+	JMP	D.XIT		;TURN OFF DISK WITH ERROR INDICATION, IF ANY
+ 
+MFRTRAN	IN	DP.DC		;GET DRIVE STATUS
+	ANI	DF.HD		;GET NEW HOLE STATUS
+	CMP	B		;SAME AS PREVIOUS -
+	MOV	B,A		;SAVE NEW HOLE STATUS
+	MOV	A,M		;GET CURRENT TIME
+	RNE			;- NO, RETURN
+ 
+	CMP	E		;TIMEOUT EXPIRED -
+	JNE	MFRTRAN		;- NO, CONTINUE WAIT LOOP
+ 
+	MVI	C,1		;- YES, RESET TRANSITION LOOP COUNT
+	RET			;RETURN
+ 
+MFRERR	SET	2		;SET DEFAULT ROTATION INTERVAL ERROR ALLOWANCE
+	SPACE	3

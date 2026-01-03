@@ -1,0 +1,18 @@
+MTRDEF  SPACE   4,10
+**      HDOS MONITOR PRIVATE RAM AREA DEFINITIONS.
+
+        ORG     0
+M.SYSM  DS      1               SYSCALL ITTERATION COUNT
+M.SALO  DS      1               STAND-ALONE FLAG
+M.CSLC  DS      1               LINES IN CONSOLE BUFFER
+M.CPRE  DS      1               CONSOLE PREVIOUS CHARACTER
+M.CRUB  DS      1               CONSOLE RUBOUT FLAG
+M.CINT  DS      1               CONSOLE INTERRUPT FLAG
+M.CIN   DS      2               CONSOLE CB IN POINTER
+M.COUT  DS      2               CONSOLE CB OUT POINTER
+M.CFWA  DS      2               CONSOLE CB FWA POINTER
+M.CLWA  DS      2               CONSOLE CB LWA POINTER
+M.CDLY  DS      1               CONSOLE PAD CHARACTER COUNT
+M.CDCA  DS      2               ADDRESS OF CHARACTER BEING PADDED
+M.SUNI  DS      1               System Unit NUmber              /80.05.gc/
+M.SYDD  DS      2               Address of Raw System Driver    /80.09.gc/
